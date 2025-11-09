@@ -20,7 +20,7 @@
 
 ### 1. 프로젝트 초기 설정
 
-- [ ] 1.1 프로젝트 초기화
+- [x] 1.1 프로젝트 초기화
   - TypeScript 프로젝트 설정 (tsconfig.json)
   - 필수 패키지 설치: @anthropic-ai/sdk, commander, inquirer, zod, dotenv
   - 기본 디렉토리 구조: src/, tests/
