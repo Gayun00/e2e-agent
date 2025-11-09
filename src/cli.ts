@@ -2,11 +2,12 @@
 
 import { Command } from 'commander';
 import inquirer from 'inquirer';
-import { loadConfig } from './config/loader';
+import { loadConfig, createDefaultConfig } from './config/loader';
 import { parseCommand } from './parser/command-parser';
 import { AnthropicLLMService } from './services/llm';
 import { PageGeneratorService } from './services/page-generator';
 import type { AgentConfig } from './types/config';
+import * as fs from 'fs';
 
 const program = new Command();
 
@@ -87,7 +88,7 @@ async function handleUserInput(input: string, config: AgentConfig | undefined) {
   // 의도에 따라 처리
   switch (intent.type) {
     case 'init_project':
-      console.log('💡 프로젝트 초기화 기능은 곧 구현될 예정입니다.\n');
+      await handleInitProject();
       break;
 
     case 'generate_test':
@@ -107,6 +108,62 @@ async function handleUserInput(input: string, config: AgentConfig | undefined) {
       console.log('   /help를 입력하여 사용 가능한 명령을 확인하세요.\n');
       break;
   }
+}
+
+async function handleInitProject() {
+  console.log('\n🚀 프로젝트 초기화를 시작합니다.\n');
+
+  // 이미 설정 파일이 있는지 확인
+  if (fs.existsSync('.e2e-agent.config.json')) {
+    const { overwrite } = await inquirer.prompt({
+      type: 'confirm',
+      name: 'overwrite',
+      message: '설정 파일이 이미 존재합니다. 덮어쓰시겠습니까?',
+      default: false,
+    });
+
+    if (!overwrite) {
+      console.log('❌ 초기화를 취소했습니다.\n');
+      return;
+    }
+  }
+
+  // 사용자에게 설정 정보 물어보기
+  const answers = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'baseUrl',
+      message: '테스트할 애플리케이션의 기본 URL을 입력하세요:',
+      default: 'http://localhost:3000',
+    },
+    {
+      type: 'input',
+      name: 'testsDirectory',
+      message: 'Playwright 테스트를 저장할 디렉토리를 입력하세요:',
+      default: 'tests',
+    },
+  ]);
+
+  // 설정 파일 생성
+  createDefaultConfig('.', {
+    baseUrl: answers.baseUrl,
+    testsDirectory: answers.testsDirectory,
+  });
+
+  // 디렉토리 생성
+  const testsDir = answers.testsDirectory;
+  const pagesDir = `${testsDir}/pages`;
+  const mocksDir = `${testsDir}/mocks`;
+
+  [testsDir, pagesDir, mocksDir].forEach((dir) => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+      console.log(`✓ 디렉토리 생성: ${dir}`);
+    }
+  });
+
+  console.log('\n✅ 프로젝트 초기화 완료!');
+  console.log('💡 .env 파일에 ANTHROPIC_API_KEY를 추가하세요.\n');
 }
 
 async function handleGenerateTest(description: string, config: AgentConfig) {
@@ -153,7 +210,43 @@ async function handleGenerateTest(description: string, config: AgentConfig) {
       console.log(`   - ${name}: ${path}`);
     });
 
-    console.log('\n💡 다음 단계에서 실제 페이지 객체와 테스트 파일을 생성할 예정입니다.\n');
+    // 페이지 객체 코드 생성 및 파일 저장
+    console.log('\n🔨 페이지 객체 생성 중...\n');
+    
+    const pagesDirectory = config.pagesDirectory || './tests/pages';
+    
+    for (const { name, path } of pageInfos) {
+      try {
+        console.log(`📝 ${name} 코드 생성 중...`);
+        
+        const code = await pageGenerator.generatePageObject(name, path);
+        
+        console.log(`✓ ${name} 코드 생성 완료`);
+        
+        // 파일 저장
+        console.log(`💾 저장 시도: ${pagesDirectory}`);
+        const filePath = await pageGenerator.savePageObject(name, code, pagesDirectory);
+        console.log(`✅ 파일 저장 완료: ${filePath}`);
+        
+        // 파일이 실제로 존재하는지 확인
+        if (fs.existsSync(filePath)) {
+          console.log(`✓ 파일 존재 확인됨: ${filePath}`);
+        } else {
+          console.log(`❌ 파일이 생성되지 않음: ${filePath}`);
+        }
+        
+        console.log(`\n생성된 코드 미리보기:\n`);
+        console.log('─'.repeat(50));
+        console.log(code.split('\n').slice(0, 15).join('\n'));
+        console.log('...');
+        console.log('─'.repeat(50));
+        console.log('');
+      } catch (error) {
+        console.error(`❌ ${name} 저장 중 에러:`, error);
+      }
+    }
+
+    console.log(`\n✅ 모든 페이지 객체가 ${pagesDirectory}에 저장되었습니다!\n`);
   } catch (error) {
     console.error('❌ 에러 발생:', error instanceof Error ? error.message : error);
     console.log('');

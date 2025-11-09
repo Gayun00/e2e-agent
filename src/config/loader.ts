@@ -70,14 +70,22 @@ export function loadAuthCredentials(): { email: string; password: string } | nul
 /**
  * Create default configuration file
  */
-export function createDefaultConfig(projectPath: string = '.'): void {
+export function createDefaultConfig(
+  projectPath: string = '.',
+  options: {
+    baseUrl?: string;
+    testsDirectory?: string;
+  } = {}
+): void {
   const configPath = path.join(projectPath, '.e2e-agent.config.json');
 
+  const testsDir = options.testsDirectory || 'tests';
+
   const defaultConfig = {
-    baseUrl: 'http://localhost:3000',
-    pagesDirectory: 'tests/pages',
-    testsDirectory: 'tests',
-    mocksDirectory: 'tests/mocks',
+    baseUrl: options.baseUrl || 'http://localhost:3000',
+    pagesDirectory: `${testsDir}/pages`,
+    testsDirectory: testsDir,
+    mocksDirectory: `${testsDir}/mocks`,
     auth: {
       enabled: false,
       emailEnvVar: 'TEST_USER_EMAIL',

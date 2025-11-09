@@ -1,44 +1,62 @@
-# Playground
+# Playground - E2E Agent 테스트 환경
 
-이 디렉토리는 e2e-agent를 수동으로 테스트하기 위한 공간입니다.
+이 디렉토리는 E2E Agent를 테스트하기 위한 샘플 프로젝트입니다.
+
+## 구조
+
+```
+playground/
+├── src/
+│   ├── pages/          # 페이지 컴포넌트
+│   │   ├── login.tsx   # 로그인 페이지
+│   │   └── products.tsx # 상품 목록 페이지
+│   └── components/     # 공통 컴포넌트
+│       └── Header.tsx  # 헤더 컴포넌트
+├── .e2e-agent.config.json  # E2E Agent 설정
+└── .env                # 환경 변수
+```
+
+## 테스트 시나리오
+
+### 1. 로그인 페이지 (login.tsx)
+- 이메일 입력 필드
+- 비밀번호 입력 필드
+- 로그인 버튼
+- data-testid 속성 포함
+
+### 2. 상품 목록 페이지 (products.tsx)
+- 상품 카드 목록
+- 각 상품별 "장바구니 담기" 버튼
+- data-testid 속성 포함
+
+### 3. 헤더 컴포넌트 (Header.tsx)
+- 네비게이션 링크
+- data-testid 속성 포함
 
 ## 사용 방법
 
-1. `.env.example`을 복사하여 `.env` 파일 생성:
-   ```bash
-   cp .env.example .env
-   ```
+1. E2E Agent 실행:
+```bash
+npm start
+```
 
-2. `.env` 파일에 실제 API 키 입력:
-   ```
-   ANTHROPIC_API_KEY=sk-ant-...
-   ```
+2. 페이지 객체 생성 테스트:
+```bash
+# playground 디렉토리에서
+e2e-agent generate
+```
 
-2. 프로젝트 빌드 (루트에서):
-   ```bash
-   npm run build
-   ```
+3. 에이전트가 src/ 디렉토리의 코드를 분석하여:
+   - 페이지 구조 파악
+   - data-testid 추출
+   - Page Object 생성
+   - 테스트 코드 생성
 
-3. playground 디렉토리로 이동:
-   ```bash
-   cd playground
-   ```
+## 기대 결과
 
-4. Agent 실행:
-   ```bash
-   npm start
-   ```
+에이전트가 다음을 자동으로 생성해야 합니다:
 
-4. 테스트 명령어 입력:
-   ```
-   > 로그인 테스트 만들어줘
-   ```
-
-## 생성되는 파일들
-
-- `tests/pages/` - 페이지 객체 파일
-- `tests/` - 테스트 파일
-- `tests/mocks/` - Mocking 파일
-- `screenshots/` - 스크린샷
-
-모든 생성 파일은 `.gitignore`에 포함되어 있어 커밋되지 않습니다.
+1. `tests/pages/LoginPage.ts` - 로그인 페이지 객체
+2. `tests/pages/ProductsPage.ts` - 상품 페이지 객체
+3. `tests/login.spec.ts` - 로그인 테스트
+4. `tests/products.spec.ts` - 상품 목록 테스트

@@ -204,10 +204,25 @@ Playwright 권장 선택자 우선순위:
 2. WHEN 페이지가 정의되면 THEN Agent는 각 페이지의 경로(route/path)를 추론해야 합니다
 3. WHEN 페이지 경로가 추론되면 THEN Agent는 사용자에게 경로 확인을 요청해야 합니다
 4. IF 사용자가 경로를 수정하면 THEN Agent는 수정된 경로를 사용해야 합니다
-5. WHEN 경로가 확인되면 THEN Agent는 해당 경로로 이동하는 `goto()` 메서드를 페이지 객체에 추가해야 합니다
-6. WHEN 경로가 확인되면 THEN Agent는 현재 페이지가 올바른 경로에 있는지 확인하는 검증 메서드를 페이지 객체에 추가해야 합니다
-7. WHEN 페이지 경로와 검증 메서드가 준비되면 THEN Agent는 POM 패턴을 따르는 페이지 객체 클래스를 생성해야 합니다
-8. IF 페이지 객체가 이미 존재하면 THEN Agent는 중복 생성 대신 기존 페이지 객체를 재사용해야 합니다
+5. WHEN 경로가 확인되면 THEN Agent는 실제 페이지 소스 파일을 찾아야 합니다 (예: `src/pages/login.tsx`)
+6. WHEN 페이지 소스 파일을 찾으면 THEN Agent는 소스 코드를 읽어 상호작용 요소를 분석해야 합니다
+7. WHEN 요소를 분석할 때 THEN Agent는 다음 요소만 추출해야 합니다:
+   - 버튼 (button, type="submit")
+   - 입력 필드 (input, textarea)
+   - 링크 (a 태그)
+   - 선택 박스 (select)
+   - 체크박스/라디오 (input[type="checkbox"], input[type="radio"])
+8. WHEN 선택자를 생성할 때 THEN Agent는 다음 우선순위를 따라야 합니다:
+   - data-testid 속성 (최우선)
+   - id 속성
+   - placeholder 속성
+   - role과 name 조합
+   - CSS 선택자 (최후의 수단)
+9. WHEN 페이지 객체를 생성할 때 THEN Agent는 다음 메서드를 포함해야 합니다:
+   - `goto()`: 페이지로 이동
+   - `isOnPage()`: 현재 경로가 올바른지 확인 (`expect(page).toHaveURL()` 사용)
+10. WHEN 페이지 객체를 생성할 때 THEN Agent는 동작 메서드를 생성하지 않아야 합니다 (선택자만 정의)
+11. IF 페이지 객체가 이미 존재하면 THEN Agent는 중복 생성 대신 기존 페이지 객체를 재사용해야 합니다
 
 ### 요구사항 3: 요소 선택자 결정
 

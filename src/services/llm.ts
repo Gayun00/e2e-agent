@@ -20,7 +20,7 @@ export interface ChatResponse {
  */
 export class AnthropicLLMService {
   private client: Anthropic;
-  private model: string = 'claude-3-5-sonnet-20241022';
+  private model: string = 'claude-sonnet-4-5';
 
   constructor(apiKey: string) {
     this.client = new Anthropic({ apiKey });
@@ -83,10 +83,26 @@ JSON 형식으로만 응답해주세요:
       { role: 'user', content: prompt }
     ]);
 
+    console.log('Raw LLM response:', response.content);
+
     try {
-      const parsed = JSON.parse(response.content);
+      let content = response.content.trim();
+
+      // 코드 블록 마커 제거
+      if (content.startsWith('```')) {
+        content = content.replace(/^```(?:json)?\n/, '').replace(/\n```$/, '');
+      }
+
+      // JSON 부분만 추출 (설명이 포함된 경우)
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        content = jsonMatch[0];
+      }
+
+      const parsed = JSON.parse(content);
       return parsed;
     } catch (error) {
+      console.error('Failed to parse LLM response:', response.content);
       throw new Error('Failed to parse scenario analysis response');
     }
   }

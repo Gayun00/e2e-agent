@@ -1,14 +1,17 @@
 import { describe, test, expect, beforeAll } from 'vitest';
 import { AnthropicLLMService } from './llm';
-import { loadCredentials } from '../config/loader';
+import { loadAuthCredentials } from '../config/loader';
 
 describe('AnthropicLLMService', () => {
   let llm: AnthropicLLMService;
   let apiKey: string;
 
   beforeAll(() => {
-    const creds = loadCredentials();
-    apiKey = creds.anthropicApiKey;
+    // Load API key from environment
+    apiKey = process.env.ANTHROPIC_API_KEY || '';
+    if (!apiKey) {
+      throw new Error('ANTHROPIC_API_KEY not found in environment');
+    }
     llm = new AnthropicLLMService(apiKey);
   });
 

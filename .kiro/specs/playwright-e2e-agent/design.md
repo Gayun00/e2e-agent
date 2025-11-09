@@ -197,7 +197,7 @@ class DomainDocumentManager {
 
 ### 4. Page Object Generator
 
-**책임**: 페이지 객체 클래스 생성, 경로 추론, 사용자 확인
+**책임**: 페이지 객체 클래스 생성, 경로 추론, 실제 페이지 소스 분석
 
 ```typescript
 interface PageObject {
@@ -205,16 +205,16 @@ interface PageObject {
   path: string;
   className: string;
   elements: ElementDefinition[];
-  actions: PageAction[];
   mockingConfig?: MockingConfig;
   screenshots?: ScreenshotResult[];
   filePath: string;
+  sourceFilePath?: string;  // 실제 페이지 소스 파일 경로
 }
 
 interface ElementDefinition {
   name: string;
   selector: ElementSelector;
-  type: 'button' | 'input' | 'text' | 'link' | 'custom';
+  type: 'button' | 'input' | 'text' | 'link' | 'select' | 'checkbox' | 'radio';
 }
 
 interface ElementSelector {
@@ -224,30 +224,48 @@ interface ElementSelector {
 }
 
 enum SelectorStrategy {
-  ROLE = 'role',
+  TEST_ID = 'testId',      // 최우선
+  ID = 'id',
   PLACEHOLDER = 'placeholder',
+  ROLE = 'role',
   LABEL = 'label',
   TEXT = 'text',
-  TEST_ID = 'testId',
   CSS = 'css',
   XPATH = 'xpath'
-}
-
-interface PageAction {
-  name: string;
-  type: 'navigation' | 'interaction' | 'assertion';
-  parameters: ActionParameter[];
-  implementation: string;
 }
 
 class PageObjectGenerator {
   async identifyPages(scenario: ScenarioAnalysis): Promise<string[]>;
   async inferPath(pageName: string, domainKnowledge?: DomainKnowledge): Promise<string>;
   async confirmPath(pageName: string, inferredPath: string): Promise<string>;
+  
+  // 실제 페이지 소스 파일 찾기
+  async findPageSourceFile(pagePath: string): Promise<string | null>;
+  
+  // 페이지 소스 코드를 읽어서 상호작용 요소 추출
+  async analyzePageSource(sourceCode: string): Promise<ElementDefinition[]>;
+  
+  // 페이지 객체 클래스 생성 (실제 요소만 포함)
   async generateClass(pageObject: PageObject): Promise<string>;
+  
   async writeToFile(pageObject: PageObject, code: string): Promise<void>;
 }
 ```
+
+**페이지 객체 생성 원칙**:
+
+1. **실제 페이지 소스 우선**: 페이지 경로(예: `/login`)로부터 실제 소스 파일(예: `src/pages/login.tsx`)을 찾아 분석
+2. **상호작용 요소만 추출**: 버튼, 입력 필드, 링크 등 사용자가 상호작용하는 요소만 선택자로 정의
+3. **선택자 우선순위**:
+   - `data-testid` 속성 (최우선)
+   - `id` 속성
+   - `placeholder` 속성
+   - `role`과 `name` 조합
+   - CSS 선택자 (최후의 수단)
+4. **필수 메서드**:
+   - `goto()`: 페이지로 이동
+   - `isOnPage()`: 현재 경로 확인 (`expect(page).toHaveURL()` 사용)
+5. **동작 메서드는 생성하지 않음**: 선택자만 정의하고, 실제 동작은 테스트 코드에서 직접 작성
 
 ### 5. MCP Client Service
 
