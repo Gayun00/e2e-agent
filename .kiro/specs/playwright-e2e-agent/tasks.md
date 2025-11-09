@@ -194,6 +194,27 @@
   # 테스트 코드 확인
   ```
 
+- [x] 5.3 POM 공통 메서드 및 동작 메서드 추가
+  - 재사용 가능한 공통 메서드 식별 및 구현 (fill, click, waitFor 등)
+  - BasePage 클래스 또는 공통 유틸리티 생성
+  - 페이지별 동작 메서드 생성 (login(), submit() 등)
+  - 공통 메서드를 활용하여 동작 메서드 구현
+  - _Requirements: 2.7, 4.1, 4.2, 4.3_
+  
+  **테스트 방법:**
+  ```bash
+  # BasePage 확인
+  cat tests/pages/BasePage.ts
+  # 공통 메서드 존재 확인
+  
+  # 페이지 객체에서 BasePage 상속 및 동작 메서드 확인
+  cat tests/pages/LoginPage.ts | grep "extends BasePage"
+  cat tests/pages/LoginPage.ts | grep "async login"
+  
+  # 공통 메서드 활용 확인
+  cat tests/pages/LoginPage.ts | grep "this.fillInput\|this.clickElement"
+  ```
+
 ### 6. Phase 1 통합 테스트
 
 - [ ] 6.1 E2E 워크플로우 테스트
@@ -334,14 +355,33 @@
   # getByRole, getByPlaceholder 등 실제 선택자 확인
   ```
 
-- [ ] 9.2 동작 메서드 생성
+- [ ] 9.2 POM 공통 메서드 추가
+  - 재사용 가능한 공통 메서드 식별 (예: fill, click, waitFor 등)
+  - BasePage 클래스 생성 또는 공통 유틸리티 함수 구현
+  - 각 페이지 객체에서 공통 메서드 활용
+  - _Requirements: 2.7, 4.1_
+  
+  **테스트 방법:**
+  ```bash
+  # BasePage 또는 공통 유틸리티 확인
+  cat tests/pages/BasePage.ts
+  # 공통 메서드 존재 확인 (fillInput, clickElement, waitForElement 등)
+  
+  # 페이지 객체에서 공통 메서드 사용 확인
+  cat tests/pages/LoginPage.ts | grep "extends BasePage"
+  ```
+
+- [ ] 9.3 동작 메서드 생성
   - login(), clickButton() 등 메서드 추가
+  - 공통 메서드를 활용하여 구현
   - _Requirements: 4.1, 4.2, 4.3_
   
   **테스트 방법:**
   ```bash
   # 생성된 코드에 메서드 존재 확인
   cat tests/pages/LoginPage.ts | grep "async login"
+  # 공통 메서드 활용 확인
+  cat tests/pages/LoginPage.ts | grep "this.fillInput\|this.clickElement"
   ```
 
 ### 10. Phase 2 통합 테스트

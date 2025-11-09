@@ -166,8 +166,11 @@ ${pageSourceCode}
 6. **필수 메서드**:
    - goto(): 페이지로 이동
    - isOnPage(): 현재 경로가 ${pagePath}인지 확인하는 메서드 (expect(page).toHaveURL() 사용)
-7. 페이지 소스에 없는 요소는 추가하지 말 것
-8. 동작 메서드는 생성하지 말 것 (선택자만 정의)
+7. **동작 메서드 생성** (POM 패턴):
+   - 각 입력 필드에 대한 fill 메서드 (예: fillEmail, fillPassword)
+   - 각 버튼에 대한 click 메서드 (예: clickLogin, clickSubmit)
+   - 여러 단계를 조합한 높은 수준의 메서드 (예: login(email, password))
+8. 페이지 소스에 없는 요소는 추가하지 말 것
 
 예시 구조:
 \`\`\`typescript
@@ -194,6 +197,26 @@ export class ${pageName} {
 
   async isOnPage() {
     await expect(this.page).toHaveURL('${pagePath}');
+  }
+
+  // 각 요소에 대한 동작 메서드
+  async fillEmail(email: string) {
+    await this.emailInput.fill(email);
+  }
+
+  async fillPassword(password: string) {
+    await this.passwordInput.fill(password);
+  }
+
+  async clickLogin() {
+    await this.loginButton.click();
+  }
+
+  // 높은 수준의 동작 메서드 (여러 단계 조합)
+  async login(email: string, password: string) {
+    await this.fillEmail(email);
+    await this.fillPassword(password);
+    await this.clickLogin();
   }
 }
 \`\`\`
@@ -274,14 +297,15 @@ ${pageObjectDetails.join('\n\n')}
 2. 제공된 페이지 객체들을 import하여 사용
 3. test.describe로 테스트 그룹화
 4. test() 함수로 개별 테스트 작성
-5. **페이지 객체에 정의된 선택자(Locator)를 직접 사용**:
-   - 예: await loginPage.emailInput.fill('test@test.com')
-   - 예: await loginPage.loginButton.click()
-6. **페이지 객체의 메서드 사용**:
+5. **페이지 객체의 동작 메서드 사용** (선택자 직접 사용 금지):
+   - ❌ 나쁜 예: await loginPage.emailInput.fill('test@test.com')
+   - ✅ 좋은 예: await loginPage.fillEmail('test@test.com')
+   - ✅ 더 좋은 예: await loginPage.login('test@test.com', 'password')
+6. **페이지 객체의 필수 메서드 사용**:
    - goto(): 페이지 이동
    - isOnPage(): 경로 확인
 7. expect를 사용한 assertion 포함
-8. 페이지 객체에 없는 선택자는 사용하지 말 것
+8. 페이지 객체에 정의되지 않은 메서드는 사용하지 말 것
 
 예시 구조:
 \`\`\`typescript
@@ -295,10 +319,8 @@ test.describe('로그인 테스트', () => {
     // 페이지 이동
     await loginPage.goto();
     
-    // 페이지 객체의 선택자 사용
-    await loginPage.emailInput.fill('test@test.com');
-    await loginPage.passwordInput.fill('password123');
-    await loginPage.loginButton.click();
+    // 페이지 객체의 동작 메서드 사용
+    await loginPage.login('test@test.com', 'password123');
     
     // 검증
     await expect(page).toHaveURL('/dashboard');
