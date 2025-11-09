@@ -33,7 +33,7 @@
   node dist/index.js --version  # 버전 출력 확인
   ```
 
-- [ ] 1.2 설정 파일 시스템
+- [x] 1.2 설정 파일 시스템
   - AgentConfig 타입 정의 (Zod 스키마)
   - .env 파일 로드 (dotenv)
   - 설정 검증 및 에러 처리
@@ -55,7 +55,7 @@
 
 ### 2. 기본 CLI 인터페이스
 
-- [ ] 2.1 CLI 진입점 구현
+- [x] 2.1 CLI 진입점 구현
   - Commander.js로 기본 명령어 구조
   - `e2e-agent` 실행 시 대화형 모드 시작
   - 사용자 입력 받기 (Inquirer.js)
