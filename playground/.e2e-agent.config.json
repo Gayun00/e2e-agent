@@ -2,5 +2,11 @@
   "baseUrl": "http://localhost:3000",
   "pagesDirectory": "tests/pages",
   "testsDirectory": "tests",
-  "mocksDirectory": "tests/mocks"
+  "mocksDirectory": "tests/mocks",
+  "auth": {
+    "enabled": false,
+    "emailEnvVar": "TEST_USER_EMAIL",
+    "passwordEnvVar": "TEST_USER_PASSWORD",
+    "loginPath": "/login"
+  }
 }

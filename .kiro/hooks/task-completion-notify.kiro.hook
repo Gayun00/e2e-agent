@@ -13,6 +13,6 @@
   },
   "then": {
     "type": "askAgent",
-    "prompt": "A task has been completed. Please:\n1. Do NOT automatically run test or build commands\n2. Analyze what was changed and provide clear instructions to the user on how to test these changes manually\n3. Update the task documentation (devlog files) by marking completed checkboxes as checked\n4. Summarize what was accomplished and what testing approach is recommended"
+    "prompt": "A task has been completed. Please:\n1. Do NOT automatically run test or build commands\n2. Analyze what was changed and provide clear instructions to the user on how to test these changes manually\n3. Update the task documentation (devlog files) by marking completed checkboxes as checked\n4. Summarize what was accomplished and what testing approach is recommended\n5. 태스크 구현 문서에서 완료한 작업 태스크에 체크박스 표시할 것"
   }
 }

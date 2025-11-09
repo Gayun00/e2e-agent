@@ -17,6 +17,24 @@ program
   .version('0.1.0');
 
 program
+  .command('init')
+  .description('프로젝트 초기화 및 시나리오 템플릿 생성')
+  .option('-f, --force', '기존 파일 덮어쓰기')
+  .option('-n, --name <name>', '시나리오 파일 이름', 'my-test')
+  .action(async (options) => {
+    const { initProject } = await import('./commands/init.js');
+    try {
+      await initProject({
+        force: options.force,
+        scenarioName: options.name,
+      });
+    } catch (error) {
+      console.error('❌ 초기화 실패:', error);
+      process.exit(1);
+    }
+  });
+
+program
   .action(async () => {
     await startInteractiveMode();
   });
