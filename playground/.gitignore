@@ -1,0 +1,6 @@
+
+
+# E2E Agent
+.env
+tests/
+!tests/scenarios/*.example.md

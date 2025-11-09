@@ -18,10 +18,10 @@ export async function initProject(options: {
 
   // 1. 디렉토리 생성
   const directories = [
-    'scenarios',
     'tests',
     'tests/pages',
     'tests/mocks',
+    'tests/scenarios',
   ];
 
   for (const dir of directories) {
@@ -34,12 +34,22 @@ export async function initProject(options: {
   }
 
   // 2. 시나리오 템플릿 파일 생성
-  const scenarioPath = path.join('scenarios', `${scenarioName}.md`);
+  const scenarioPath = path.join('tests', 'scenarios', `${scenarioName}.example.md`);
   
   if (!existsSync(scenarioPath) || force) {
-    const templateContent = await getScenarioTemplate();
-    await fs.writeFile(scenarioPath, templateContent, 'utf-8');
-    console.log(`✓ 시나리오 템플릿 생성: ${scenarioPath}`);
+    try {
+      const templateContent = getScenarioTemplate();
+      await fs.writeFile(scenarioPath, templateContent, 'utf-8');
+      
+      // 파일이 실제로 생성되었는지 확인
+      if (existsSync(scenarioPath)) {
+        console.log(`✓ 시나리오 템플릿 생성: ${scenarioPath}`);
+      } else {
+        console.log(`❌ 시나리오 파일 생성 실패: ${scenarioPath}`);
+      }
+    } catch (error) {
+      console.error(`❌ 시나리오 파일 쓰기 에러:`, error);
+    }
   } else {
     console.log(`  시나리오 파일 존재: ${scenarioPath} (--force로 덮어쓰기 가능)`);
   }
@@ -71,23 +81,18 @@ export async function initProject(options: {
 
   console.log('\n✅ 초기화 완료!\n');
   console.log('다음 단계:');
-  console.log(`1. ${scenarioPath} 파일을 열어 테스트 시나리오 작성`);
+  console.log(`1. tests/scenarios/ 디렉토리에 시나리오 .md 파일 작성`);
   console.log('2. .env 파일 생성 및 ANTHROPIC_API_KEY 설정');
-  console.log(`3. e2e-agent generate --scenario ${scenarioPath} 실행`);
+  console.log('3. 대화형 모드에서 @ 입력으로 시나리오 파일 선택');
   console.log('');
 }
 
 function getScenarioTemplate(): string {
-  return `# E2E 테스트 시나리오
-
-> 이 문서는 Playwright E2E Agent가 자동으로 테스트 코드를 생성하기 위한 시나리오 정의 문서입니다.
-> 아래 형식에 맞춰 작성하면 Agent가 자동으로 Page Object와 테스트 파일을 생성합니다.
+  return `# E2E 테스트 시나리오: 로그인 플로우
 
 ---
 
 ## 📄 페이지 정의
-
-각 페이지의 이름, 경로, 설명을 정의합니다.
 
 ### LoginPage
 - **경로**: \`/login\`
@@ -101,8 +106,6 @@ function getScenarioTemplate(): string {
 
 ## 🧪 테스트 플로우
 
-각 테스트 시나리오의 단계를 순서대로 작성합니다.
-
 ### 성공적인 로그인
 **목적**: 올바른 계정 정보로 로그인이 정상적으로 동작하는지 확인
 
@@ -111,28 +114,25 @@ function getScenarioTemplate(): string {
 3. 비밀번호 입력 (\`password123\`)
 4. 로그인 버튼 클릭
 5. DashboardPage로 리다이렉트 확인
-6. 환영 메시지 표시 확인 (\`안녕하세요\`)
+6. 환영 메시지 표시 확인 (\`안녕하세요, 테스트님!\`)
 
----
+### 잘못된 로그인
+**목적**: 잘못된 계정 정보로 로그인 시 에러 처리 확인
 
-## 📝 작성 가이드
+1. LoginPage로 이동
+2. 이메일 입력 (\`wrong@example.com\`)
+3. 비밀번호 입력 (\`wrongpassword\`)
+4. 로그인 버튼 클릭
+5. 에러 메시지 표시 확인 (\`이메일 또는 비밀번호가 올바르지 않습니다\`)
+6. LoginPage에 그대로 있는지 확인
 
-### 페이지 정의 규칙
-- 페이지 이름은 PascalCase로 작성 (예: \`LoginPage\`, \`UserProfilePage\`)
-- 경로는 실제 URL 경로를 정확히 입력
-- 설명은 간단명료하게 작성
+### 빈 필드로 로그인 시도
+**목적**: 필수 입력 필드 검증 확인
 
-### 테스트 플로우 규칙
-- 각 단계는 명확한 동작 하나만 포함
-- 입력 값은 백틱(\\\`)으로 감싸서 표시
-- 확인/검증 단계는 "확인"이라는 단어 포함
-- 페이지 이동은 "페이지로 이동" 또는 "이동 확인" 형식 사용
-
-### 지원하는 동작 키워드
-- **이동**: \`~로 이동\`, \`~로 이동 확인\`
-- **입력**: \`~ 입력\`, \`~에 입력\`
-- **클릭**: \`~ 클릭\`, \`~ 버튼 클릭\`
-- **확인**: \`~ 확인\`, \`~ 표시 확인\`, \`~인지 확인\`
+1. LoginPage로 이동
+2. 로그인 버튼 클릭
+3. 이메일 필드 에러 표시 확인 (\`이메일을 입력해주세요\`)
+4. 비밀번호 필드 에러 표시 확인 (\`비밀번호를 입력해주세요\`)
 `;
 }
 
@@ -168,8 +168,7 @@ async function updateGitignore(): Promise<void> {
     '# E2E Agent',
     '.env',
     'tests/',
-    'scenarios/*.md',
-    '!scenarios/*.example.md',
+    '!tests/scenarios/*.example.md',
   ];
 
   let content = '';

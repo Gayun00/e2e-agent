@@ -35,6 +35,20 @@ program
   });
 
 program
+  .command('generate')
+  .description('시나리오 문서로부터 테스트 코드 생성')
+  .requiredOption('-s, --scenario <path>', '시나리오 파일 경로 (예: scenarios/login-flow.md)')
+  .action(async (options) => {
+    const { generateFromScenario } = await import('./commands/generate.js');
+    try {
+      await generateFromScenario(options.scenario);
+    } catch (error) {
+      console.error('❌ 테스트 생성 실패:', error);
+      process.exit(1);
+    }
+  });
+
+program
   .action(async () => {
     await startInteractiveMode();
   });
@@ -43,6 +57,7 @@ async function startInteractiveMode() {
   console.log('🤖 Playwright E2E Agent');
   console.log('Version 0.1.0');
   console.log('대화형 모드를 시작합니다. 종료하려면 /exit를 입력하세요.\n');
+  console.log('💡 Tip: @를 입력하면 시나리오 파일 자동완성이 활성화됩니다.\n');
 
   // 설정 파일 로드 시도 (없으면 나중에 처리)
   let config;
@@ -62,7 +77,34 @@ async function startInteractiveMode() {
       message: '>',
     });
 
-    const trimmedInput = input.trim();
+    let trimmedInput = input.trim();
+
+    // @ 입력 시 파일 자동완성 트리거
+    if (trimmedInput === '@' || trimmedInput.startsWith('@')) {
+      const { promptForScenarioFile, getScenarioFiles } = await import('./utils/file-autocomplete.js');
+
+      // 파일이 있는지 확인
+      const files = getScenarioFiles();
+      console.log(`\n📁 발견된 시나리오 파일: ${files.length}개`);
+
+      if (files.length === 0) {
+        console.log('❌ tests/scenarios 디렉토리에 .md 파일이 없습니다.\n');
+        continue;
+      }
+
+      try {
+        console.log('🔍 파일 선택 프롬프트 표시 중...\n');
+        const selectedFile = await promptForScenarioFile();
+
+        // 선택된 파일로 명령 재구성
+        trimmedInput = `@${selectedFile} 읽고 테스트 작성해줘`;
+        console.log(`\n📝 명령: ${trimmedInput}\n`);
+      } catch (error) {
+        // 사용자가 취소한 경우 (Ctrl+C)
+        console.log('\n취소됨\n');
+        continue;
+      }
+    }
 
     // 종료 명령
     if (trimmedInput === '/exit' || trimmedInput === '/quit') {
@@ -91,9 +133,12 @@ function showHelp() {
   console.log('  /help, 도움말     - 이 도움말 표시');
   console.log('  /exit, /quit      - 프로그램 종료');
   console.log('\n예시:');
-  console.log('  > 로그인 테스트 만들어줘');
-  console.log('  > 상품 페이지 테스트 생성해줘');
-  console.log('  > 프로젝트 초기화해줘\n');
+  console.log('  > 프로젝트 초기화해줘');
+  console.log('  > @scenarios/login-flow.md 읽고 테스트 작성해줘');
+  console.log('  > @{scenarios/my-test.md}로 테스트 생성해줘');
+  console.log('  > 로그인 테스트 만들어줘 (Phase 1 방식)\n');
+  console.log('파일 참조:');
+  console.log('  @{파일경로} 또는 @파일경로.md 형식으로 시나리오 파일 참조\n');
 }
 
 async function handleUserInput(input: string, config: AgentConfig | undefined) {
@@ -107,6 +152,14 @@ async function handleUserInput(input: string, config: AgentConfig | undefined) {
   switch (intent.type) {
     case 'init_project':
       await handleInitProject();
+      break;
+
+    case 'generate_from_scenario':
+      if (!config) {
+        console.log('❌ 설정 파일이 필요합니다. 먼저 "프로젝트 초기화해줘"를 실행하세요.\n');
+        break;
+      }
+      await handleGenerateFromScenario(intent.scenarioPath, config);
       break;
 
     case 'generate_test':
@@ -125,6 +178,19 @@ async function handleUserInput(input: string, config: AgentConfig | undefined) {
       console.log('💡 아직 이 명령을 처리할 수 없습니다.');
       console.log('   /help를 입력하여 사용 가능한 명령을 확인하세요.\n');
       break;
+  }
+}
+
+async function handleGenerateFromScenario(scenarioPath: string, config: AgentConfig) {
+  console.log(`\n📖 시나리오 파일 기반 테스트 생성: ${scenarioPath}\n`);
+
+  const { generateFromScenario } = await import('./commands/generate.js');
+
+  try {
+    await generateFromScenario(scenarioPath);
+  } catch (error) {
+    console.error('❌ 테스트 생성 실패:', error instanceof Error ? error.message : error);
+    console.log('');
   }
 }
 
@@ -172,13 +238,67 @@ async function handleInitProject() {
   const testsDir = answers.testsDirectory;
   const pagesDir = `${testsDir}/pages`;
   const mocksDir = `${testsDir}/mocks`;
+  const scenariosDir = `${testsDir}/scenarios`;
 
-  [testsDir, pagesDir, mocksDir].forEach((dir) => {
+  [testsDir, pagesDir, mocksDir, scenariosDir].forEach((dir) => {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
       console.log(`✓ 디렉토리 생성: ${dir}`);
     }
   });
+
+  // 시나리오 예제 파일 생성
+  const scenarioExamplePath = `${scenariosDir}/login-flow.example.md`;
+  if (!fs.existsSync(scenarioExamplePath)) {
+    const exampleContent = `# E2E 테스트 시나리오: 로그인 플로우
+
+---
+
+## 📄 페이지 정의
+
+### LoginPage
+- **경로**: \`/login\`
+- **설명**: 사용자 로그인 페이지
+
+### DashboardPage
+- **경로**: \`/dashboard\`
+- **설명**: 로그인 후 메인 대시보드
+
+---
+
+## 🧪 테스트 플로우
+
+### 성공적인 로그인
+**목적**: 올바른 계정 정보로 로그인이 정상적으로 동작하는지 확인
+
+1. LoginPage로 이동
+2. 이메일 입력 (\`test@example.com\`)
+3. 비밀번호 입력 (\`password123\`)
+4. 로그인 버튼 클릭
+5. DashboardPage로 리다이렉트 확인
+6. 환영 메시지 표시 확인 (\`안녕하세요, 테스트님!\`)
+
+### 잘못된 로그인
+**목적**: 잘못된 계정 정보로 로그인 시 에러 처리 확인
+
+1. LoginPage로 이동
+2. 이메일 입력 (\`wrong@example.com\`)
+3. 비밀번호 입력 (\`wrongpassword\`)
+4. 로그인 버튼 클릭
+5. 에러 메시지 표시 확인 (\`이메일 또는 비밀번호가 올바르지 않습니다\`)
+6. LoginPage에 그대로 있는지 확인
+
+### 빈 필드로 로그인 시도
+**목적**: 필수 입력 필드 검증 확인
+
+1. LoginPage로 이동
+2. 로그인 버튼 클릭
+3. 이메일 필드 에러 표시 확인 (\`이메일을 입력해주세요\`)
+4. 비밀번호 필드 에러 표시 확인 (\`비밀번호를 입력해주세요\`)
+`;
+    fs.writeFileSync(scenarioExamplePath, exampleContent, 'utf-8');
+    console.log(`✓ 시나리오 예제 파일 생성: ${scenarioExamplePath}`);
+  }
 
   console.log('\n✅ 프로젝트 초기화 완료!');
   console.log('💡 .env 파일에 ANTHROPIC_API_KEY를 추가하세요.\n');
@@ -230,29 +350,29 @@ async function handleGenerateTest(description: string, config: AgentConfig) {
 
     // 페이지 객체 코드 생성 및 파일 저장
     console.log('\n🔨 페이지 객체 생성 중...\n');
-    
+
     const pagesDirectory = config.pagesDirectory || './tests/pages';
-    
+
     for (const { name, path } of pageInfos) {
       try {
         console.log(`📝 ${name} 코드 생성 중...`);
-        
+
         const code = await pageGenerator.generatePageObject(name, path);
-        
+
         console.log(`✓ ${name} 코드 생성 완료`);
-        
+
         // 파일 저장
         console.log(`💾 저장 시도: ${pagesDirectory}`);
         const filePath = await pageGenerator.savePageObject(name, code, pagesDirectory);
         console.log(`✅ 파일 저장 완료: ${filePath}`);
-        
+
         // 파일이 실제로 존재하는지 확인
         if (fs.existsSync(filePath)) {
           console.log(`✓ 파일 존재 확인됨: ${filePath}`);
         } else {
           console.log(`❌ 파일이 생성되지 않음: ${filePath}`);
         }
-        
+
         console.log(`\n생성된 코드 미리보기:\n`);
         console.log('─'.repeat(50));
         console.log(code.split('\n').slice(0, 15).join('\n'));
@@ -265,24 +385,24 @@ async function handleGenerateTest(description: string, config: AgentConfig) {
     }
 
     console.log(`\n✅ 모든 페이지 객체가 ${pagesDirectory}에 저장되었습니다!\n`);
-    
+
     // 5. 테스트 파일 생성
     console.log('📝 테스트 파일 생성 중...\n');
-    
+
     const testCode = await pageGenerator.generateTestFile(description, pageInfos);
-    
+
     console.log('✓ 테스트 코드 생성 완료\n');
-    
+
     // 테스트 파일 저장
     const testsDirectory = config.testsDirectory || './tests';
-    const testName = pageInfos.length === 1 
+    const testName = pageInfos.length === 1
       ? pageInfos[0].name.replace('Page', '').toLowerCase()
       : 'scenario';
-    
+
     console.log(`💾 테스트 파일 저장 중: ${testsDirectory}/${testName}.spec.ts`);
     const testFilePath = await pageGenerator.saveTestFile(testName, testCode, testsDirectory);
     console.log(`✅ 테스트 파일 저장 완료: ${testFilePath}\n`);
-    
+
     // 생성된 테스트 코드 미리보기
     console.log('생성된 테스트 코드 미리보기:\n');
     console.log('─'.repeat(50));
@@ -292,7 +412,7 @@ async function handleGenerateTest(description: string, config: AgentConfig) {
     }
     console.log('─'.repeat(50));
     console.log('');
-    
+
     console.log('🎉 테스트 생성 완료!\n');
     console.log('다음 명령어로 테스트를 실행할 수 있습니다:');
     console.log(`  npx playwright test ${testFilePath}\n`);

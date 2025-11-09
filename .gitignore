@@ -35,3 +35,9 @@ playground/.env
 playground/tests/
 playground/screenshots/
 playground/docs/
+
+
+# E2E Agent
+.env
+tests/
+!tests/scenarios/*.example.md
