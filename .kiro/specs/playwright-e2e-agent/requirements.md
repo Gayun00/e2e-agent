@@ -46,6 +46,30 @@ export class LoginPage {
   async getErrorMessage() {
     return await this.errorMessage.textContent();
   }
+
+  // Mocking 설정 (Agent가 자동 생성)
+  async setupMocks(scenario: 'success' | 'error' = 'success') {
+    // API Mocking
+    await this.page.route('/api/auth/login', route => {
+      if (scenario === 'error') {
+        route.fulfill({
+          status: 401,
+          body: JSON.stringify({ error: '로그인 실패' })
+        });
+      } else {
+        route.fulfill({
+          status: 200,
+          body: JSON.stringify({ token: 'mock-token', user: { name: 'Test User' } })
+        });
+      }
+    });
+
+    // Storage Mocking
+    await this.page.evaluate(() => {
+      localStorage.setItem('theme', 'dark');
+      sessionStorage.setItem('lastVisit', new Date().toISOString());
+    });
+  }
 }
 ```
 
@@ -268,7 +292,26 @@ Playwright 권장 선택자 우선순위:
 5. WHEN 파일을 생성할 때 THEN Agent는 필요한 디렉토리를 자동으로 생성해야 합니다
 6. WHEN 파일을 생성할 때 THEN Agent는 기존 파일을 덮어쓰기 전에 사용자에게 확인을 요청해야 합니다
 
-### 요구사항 9: 대화형 피드백 루프
+### 요구사항 9: 페이지별 스크린샷 및 Mocking
+
+**사용자 스토리:** QA 엔지니어로서, 각 페이지의 다양한 상태를 시각적으로 문서화하기 위해, API 및 스토리지를 mocking하여 PC/Mobile 스크린샷을 자동으로 생성하고 싶습니다.
+
+#### 인수 기준
+
+1. WHEN 페이지 객체가 생성되면 THEN Agent는 해당 페이지에 필요한 API 및 스토리지 의존성을 분석해야 합니다
+2. WHEN 의존성을 분석할 때 THEN Agent는 페이지 코드를 읽어 필요한 API 엔드포인트와 스토리지 키를 파악해야 합니다
+3. WHEN 의존성이 파악되면 THEN Agent는 페이지 객체에 mocking 설정이 이미 존재하는지 확인해야 합니다
+4. IF mocking 설정이 없으면 THEN Agent는 LLM을 사용하여 적절한 mocking 설정을 생성해야 합니다
+5. WHEN mocking 설정이 생성되면 THEN Agent는 사용자에게 확인을 요청해야 합니다
+6. IF 사용자가 mocking 설정을 승인하면 THEN Agent는 해당 설정을 페이지 객체의 `setupMocks()` 메서드로 추가해야 합니다
+7. WHEN mocking 설정이 준비되면 THEN Agent는 다음 디바이스별로 스크린샷을 생성해야 합니다:
+   - PC (데스크톱 해상도)
+   - Mobile (모바일 해상도)
+8. WHEN 스크린샷을 생성할 때 THEN Agent는 mocking을 적용하여 페이지를 로드해야 합니다
+9. WHEN 스크린샷이 생성되면 THEN Agent는 페이지별 디렉토리에 저장해야 합니다 (예: `screenshots/LoginPage/pc.png`, `screenshots/LoginPage/mobile.png`)
+10. WHEN mocking 설정이 파라미터화 가능하면 THEN Agent는 다양한 시나리오(성공, 에러 등)에 대한 스크린샷을 생성해야 합니다
+
+### 요구사항 10: 대화형 피드백 루프
 
 **사용자 스토리:** QA 엔지니어로서, 테스트 생성 중에 Agent에게 피드백을 제공하여, 생성된 테스트가 내 기대와 요구사항에 맞도록 하고 싶습니다.
 

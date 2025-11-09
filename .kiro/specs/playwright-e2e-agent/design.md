@@ -116,13 +116,16 @@ interface TestGenerationWorkflow {
   // 4단계: 요소 선택자 결정
   determineSelectors(pageObject: PageObject): Promise<ElementSelector[]>;
   
-  // 5단계: 테스트 동작 생성
+  // 5단계: Mocking 설정 및 스크린샷 생성
+  setupMockingAndScreenshots(pageObject: PageObject): Promise<void>;
+  
+  // 6단계: 테스트 동작 생성
   generateActions(pageObject: PageObject): Promise<PageAction[]>;
   
-  // 6단계: 테스트 시나리오 구성
+  // 7단계: 테스트 시나리오 구성
   composeTestScenario(pageObjects: PageObject[]): Promise<TestFile>;
   
-  // 7단계: 문서 업데이트
+  // 8단계: 문서 업데이트
   updateDocumentation(pageObjects: PageObject[]): Promise<void>;
 }
 
@@ -140,6 +143,7 @@ enum WorkflowStep {
   ANALYZE_SCENARIO = 'analyze_scenario',
   GENERATE_PAGE_OBJECTS = 'generate_page_objects',
   DETERMINE_SELECTORS = 'determine_selectors',
+  SETUP_MOCKING_SCREENSHOTS = 'setup_mocking_screenshots',
   GENERATE_ACTIONS = 'generate_actions',
   COMPOSE_TEST = 'compose_test',
   UPDATE_DOCUMENTATION = 'update_documentation',
@@ -190,6 +194,8 @@ interface PageObject {
   className: string;
   elements: ElementDefinition[];
   actions: PageAction[];
+  mockingConfig?: MockingConfig;
+  screenshots?: ScreenshotResult[];
   filePath: string;
 }
 
@@ -318,7 +324,92 @@ class SelectorDeterminer {
 }
 ```
 
-### 7. Test Scenario Composer
+### 7. Screenshot and Mocking Service
+
+**책임**: 페이지별 스크린샷 생성, API/스토리지 Mocking 관리
+
+```typescript
+interface MockingConfig {
+  api: ApiMock[];
+  storage: StorageMock;
+  scenarios: string[];  // 'success', 'error', 'loading' 등
+}
+
+interface ApiMock {
+  endpoint: string;
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  response: {
+    status: number;
+    body: any;
+  };
+  condition?: string;  // 시나리오 조건
+}
+
+interface StorageMock {
+  localStorage?: Record<string, string>;
+  sessionStorage?: Record<string, string>;
+  cookies?: Array<{ name: string; value: string }>;
+}
+
+interface ScreenshotConfig {
+  devices: DeviceConfig[];
+  outputDir: string;
+  scenarios?: string[];
+}
+
+interface DeviceConfig {
+  name: 'pc' | 'mobile' | 'tablet';
+  viewport: { width: number; height: number };
+}
+
+class ScreenshotMockingService {
+  private mcpService: PlaywrightMCPService;
+  private llmService: LLMService;
+  
+  // 페이지 의존성 분석
+  async analyzePageDependencies(pageCode: string): Promise<PageDependencies>;
+  
+  // Mocking 설정 확인
+  async checkExistingMocks(pageObject: PageObject): Promise<MockingConfig | null>;
+  
+  // Mocking 설정 생성
+  async generateMockingConfig(dependencies: PageDependencies): Promise<MockingConfig>;
+  
+  // POM에 Mocking 메서드 추가
+  async addMockingToPageObject(pageObject: PageObject, config: MockingConfig): Promise<void>;
+  
+  // 스크린샷 생성
+  async captureScreenshots(
+    pageObject: PageObject,
+    config: ScreenshotConfig
+  ): Promise<ScreenshotResult[]>;
+  
+  // Mocking 적용 및 페이지 로드
+  private async loadPageWithMocks(
+    url: string,
+    mockConfig: MockingConfig,
+    scenario: string
+  ): Promise<void>;
+}
+
+interface PageDependencies {
+  apiEndpoints: string[];
+  storageKeys: {
+    localStorage: string[];
+    sessionStorage: string[];
+  };
+  requiredData: Record<string, any>;
+}
+
+interface ScreenshotResult {
+  device: string;
+  scenario: string;
+  path: string;
+  success: boolean;
+}
+```
+
+### 8. Test Scenario Composer
 
 **책임**: 테스트 파일 생성, 시나리오 구성, 검증
 
@@ -360,7 +451,7 @@ class TestScenarioComposer {
 }
 ```
 
-### 8. LLM Service Layer
+### 9. LLM Service Layer
 
 **책임**: Anthropic API 호출, 프롬프트 관리, 응답 파싱, 캐싱
 

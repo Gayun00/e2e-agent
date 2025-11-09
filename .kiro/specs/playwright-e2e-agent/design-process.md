@@ -124,6 +124,50 @@ Agent → MCP Client → Playwright MCP Server → Browser
 
 **향후 확장:** 추상화 레이어를 통해 다른 LLM 지원 가능
 
+#### 3.4 스크린샷 및 Mocking 기능
+
+**필요성:**
+- 페이지의 다양한 상태를 시각적으로 문서화
+- API 응답이나 스토리지 값에 따라 달라지는 UI 캡처
+- PC/Mobile 등 다양한 디바이스별 화면 확인
+
+**설계 결정:**
+
+**Mocking 방식: 페이지별 설정 (POM에 포함)**
+- 전역 Mocking 대신 페이지별로 필요한 mocking 정의
+- 재사용 가능하고 시나리오별로 파라미터화
+- `setupMocks(scenario)` 메서드로 POM에 추가
+
+**워크플로우:**
+1. 페이지 코드 분석 → API/스토리지 의존성 파악
+2. 기존 mocking 설정 확인
+3. 없으면 LLM이 생성 → 사용자 확인
+4. POM에 `setupMocks()` 메서드 추가
+5. Mocking 적용하여 PC/Mobile 스크린샷 생성
+6. `screenshots/PageName/` 디렉토리에 저장
+
+**예시:**
+```typescript
+// LoginPage.ts
+async setupMocks(scenario: 'success' | 'error' = 'success') {
+  await this.page.route('/api/auth/login', route => {
+    route.fulfill({
+      status: scenario === 'error' ? 401 : 200,
+      body: JSON.stringify({ token: 'mock-token' })
+    });
+  });
+  
+  await this.page.evaluate(() => {
+    localStorage.setItem('theme', 'dark');
+  });
+}
+```
+
+**장점:**
+- 재사용 가능: 테스트에서도 동일한 mocking 사용
+- 유연성: 시나리오별로 다른 응답 설정 가능
+- 문서화: 페이지가 어떤 데이터에 의존하는지 명확
+
 #### 3.3 모니터링: Langfuse
 
 **선택 이유:**
@@ -170,8 +214,9 @@ Agent → MCP Client → Playwright MCP Server → Browser
 3. **Page Object Generator**: 페이지 객체 생성
 4. **MCP Client Service**: Playwright MCP 서버 통신
 5. **Selector Determiner**: 선택자 결정 및 검증
-6. **Test Scenario Composer**: 테스트 시나리오 구성
-7. **LLM Service Layer**: Claude API 호출 및 캐싱
+6. **Screenshot and Mocking Service**: 스크린샷 생성 및 API/스토리지 Mocking
+7. **Test Scenario Composer**: 테스트 시나리오 구성
+8. **LLM Service Layer**: Claude API 호출 및 캐싱
 
 ### 5단계: 워크플로우 정의
 
@@ -191,15 +236,22 @@ Agent → MCP Client → Playwright MCP Server → Browser
    - 실제 페이지에서 검증
    - 사용자 확인
    ↓
-5. 테스트 동작 생성
+5. Mocking 설정 및 스크린샷 생성
+   - 페이지 의존성 분석 (API, 스토리지)
+   - 기존 mocking 설정 확인
+   - 없으면 LLM으로 생성 → 사용자 확인
+   - POM에 setupMocks() 메서드 추가
+   - PC/Mobile 스크린샷 생성
+   ↓
+6. 테스트 동작 생성
    - 페이지별 액션 메서드
    - 적절한 대기 및 검증 포함
    ↓
-6. 테스트 시나리오 구성
+7. 테스트 시나리오 구성
    - describe/test 블록 생성
    - setup/teardown 추가
    ↓
-7. 문서 업데이트
+8. 문서 업데이트
    - 도메인 지식 문서 갱신
 ```
 
@@ -214,6 +266,8 @@ Agent → MCP Client → Playwright MCP Server → Browser
 | 인터페이스 | CLI | 자동화 파이프라인 통합 용이 |
 | 패턴 | POM | 유지보수성 및 재사용성 |
 | 도메인 지식 | 별도 문서 | 컨텍스트 제공 및 정확도 향상 |
+| Mocking | 페이지별 설정 | 재사용성, 유연성, 명확한 의존성 |
+| 스크린샷 | PC/Mobile 자동 생성 | 시각적 문서화, 다양한 상태 캡처 |
 
 ## 기술 스택
 
