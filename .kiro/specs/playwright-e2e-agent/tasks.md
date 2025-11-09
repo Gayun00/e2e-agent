@@ -252,9 +252,9 @@
 
 ---
 
-## Phase 2: MCP 실시간 검증 및 완성
+## Phase 2: 시나리오 문서 기반 Skeleton 생성
 
-목표: 메모리의 skeleton을 MCP로 실시간 검증하면서 실제 선택자와 메서드로 채워넣기
+목표: 시나리오 문서를 파싱하여 Page Object와 테스트 파일의 skeleton을 메모리에 생성
 
 ### 7. 시나리오 문서 파서
 
@@ -291,9 +291,63 @@
   npm run test -- scenario-parser.test.ts
   ```
 
-### 8. MCP 클라이언트 구현
+### 8. Skeleton 생성 및 관리
 
-- [ ] 8.1 MCP 클라이언트 기본 구현
+- [ ] 8.1 PageObjectSkeleton 생성
+  - 시나리오 문서 기반으로 skeleton 생성
+  - 요소 목록 (selector는 null)
+  - 메서드 목록 (implementation은 null)
+  - 메모리에만 유지
+  - _Requirements: 2.1, 2.7_
+  
+  **테스트 방법:**
+  ```typescript
+  test('Skeleton 생성', async () => {
+    const skeleton = await generator.createSkeleton(parsedScenario, 'LoginPage');
+    expect(skeleton.elements).toContainEqual({
+      name: 'emailInput',
+      purpose: '이메일 입력',
+      type: 'input',
+      selector: null
+    });
+    expect(skeleton.methods[0].implementation).toBeNull();
+  });
+  ```
+
+- [ ] 8.2 TestFileSkeleton 생성
+  - 테스트 플로우 기반으로 skeleton 생성
+  - 각 단계를 TestStep으로 변환
+  - 메모리에만 유지
+  - _Requirements: 5.1, 5.2_
+  
+  **테스트 방법:**
+  ```typescript
+  test('테스트 Skeleton 생성', async () => {
+    const testSkeleton = await composer.createTestSkeleton(parsedScenario);
+    expect(testSkeleton.testCases[0].steps).toContainEqual({
+      description: '이메일 입력',
+      pageObject: 'LoginPage',
+      method: 'fillEmail',
+      parameters: ['test@example.com']
+    });
+  });
+  ```
+
+**Phase 2 완료 기준:**
+- ✅ 시나리오 문서 파싱 완료
+- ✅ Page Object Skeleton 생성 (메모리)
+- ✅ Test File Skeleton 생성 (메모리)
+- ✅ 다음 단계(MCP 검증)를 위한 준비 완료
+
+---
+
+## Phase 3: MCP 실시간 검증 및 완성
+
+목표: 메모리의 skeleton을 MCP로 실시간 검증하면서 실제 선택자와 메서드로 채워넣기
+
+### 9. MCP 클라이언트 구현
+
+- [ ] 9.1 MCP 클라이언트 기본 구현
   - @modelcontextprotocol/sdk 사용
   - Playwright MCP 서버 연결
   - 세션 관리 (시작, 종료)
@@ -309,7 +363,7 @@
   });
   ```
 
-- [ ] 8.2 Playwright MCP 도구 래퍼
+- [ ] 9.2 Playwright MCP 도구 래퍼
   - navigate, click, fill, getText 등 기본 도구
   - 선택자 검증 메서드
   - 스크린샷 캡처
@@ -331,48 +385,6 @@
   
   # MCP 테스트
   npm run test:mcp
-  ```
-
-### 9. Skeleton 생성 및 관리
-
-- [ ] 9.1 PageObjectSkeleton 생성
-  - 시나리오 문서 기반으로 skeleton 생성
-  - 요소 목록 (selector는 null)
-  - 메서드 목록 (implementation은 null)
-  - 메모리에만 유지
-  - _Requirements: 2.1, 2.7_
-  
-  **테스트 방법:**
-  ```typescript
-  test('Skeleton 생성', async () => {
-    const skeleton = await generator.createSkeleton(parsedScenario, 'LoginPage');
-    expect(skeleton.elements).toContainEqual({
-      name: 'emailInput',
-      purpose: '이메일 입력',
-      type: 'input',
-      selector: null
-    });
-    expect(skeleton.methods[0].implementation).toBeNull();
-  });
-  ```
-
-- [ ] 9.2 TestFileSkeleton 생성
-  - 테스트 플로우 기반으로 skeleton 생성
-  - 각 단계를 TestStep으로 변환
-  - 메모리에만 유지
-  - _Requirements: 5.1, 5.2_
-  
-  **테스트 방법:**
-  ```typescript
-  test('테스트 Skeleton 생성', async () => {
-    const testSkeleton = await composer.createTestSkeleton(parsedScenario);
-    expect(testSkeleton.testCases[0].steps).toContainEqual({
-      description: '이메일 입력',
-      pageObject: 'LoginPage',
-      method: 'fillEmail',
-      parameters: ['test@example.com']
-    });
-  });
   ```
 
 ### 10. 실시간 검증 및 채워넣기
@@ -641,8 +653,7 @@
   # 검증 후 진행
   ```
 
-**Phase 2 완료 기준:**
-- ✅ 시나리오 문서 기반 자동 생성
+**Phase 3 완료 기준:**
 - ✅ MCP로 실시간 검증하며 skeleton 채워넣기
 - ✅ 실패 시 사용자 검토 및 복구
 - ✅ 생성된 테스트가 실제로 작동함
@@ -650,7 +661,7 @@
 
 ---
 
-## Phase 3: 고급 기능 (Mocking, 스크린샷, 인증)
+## Phase 4: 고급 기능 (Mocking, 스크린샷, 인증)
 
 ### 11. 인증 시스템
 
@@ -880,7 +891,7 @@
   npx playwright test
   ```
 
-**Phase 3 완료 기준:**
+**Phase 4 완료 기준:**
 - ✅ 자동 로그인 작동
 - ✅ Mocking 자동 생성
 - ✅ 스크린샷 생성 가능
@@ -889,7 +900,7 @@
 
 ---
 
-## Phase 4: 배포 준비
+## Phase 5: 배포 준비
 
 ### 19. 문서화
 
