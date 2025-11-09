@@ -293,50 +293,48 @@
 
 ### 8. Skeleton 생성 및 관리
 
-- [ ] 8.1 PageObjectSkeleton 생성
-  - 시나리오 문서 기반으로 skeleton 생성
-  - 요소 목록 (selector는 null)
-  - 메서드 목록 (implementation은 null)
-  - 메모리에만 유지
+- [x] 8.1 PageObjectSkeleton 생성
+  - LLM 기반으로 시나리오 문서에서 직접 TypeScript 코드 생성
+  - getter 방식으로 Locator 정의
+  - PLACEHOLDER 선택자 사용
+  - 필수 메서드: goto(), isOnPage()
   - _Requirements: 2.1, 2.7_
   
-  **테스트 방법:**
-  ```typescript
-  test('Skeleton 생성', async () => {
-    const skeleton = await generator.createSkeleton(parsedScenario, 'LoginPage');
-    expect(skeleton.elements).toContainEqual({
-      name: 'emailInput',
-      purpose: '이메일 입력',
-      type: 'input',
-      selector: null
-    });
-    expect(skeleton.methods[0].implementation).toBeNull();
-  });
-  ```
-
-- [ ] 8.2 TestFileSkeleton 생성
-  - 테스트 플로우 기반으로 skeleton 생성
-  - 각 단계를 TestStep으로 변환
-  - 메모리에만 유지
-  - _Requirements: 5.1, 5.2_
+  **구현 완료:**
+  - SkeletonGenerator 서비스 구현
+  - LLM 프롬프트로 Page Object 코드 직접 생성
+  - BasePage 템플릿 자동 생성
+  - getter 방식으로 요소 정의
   
   **테스트 방법:**
-  ```typescript
-  test('테스트 Skeleton 생성', async () => {
-    const testSkeleton = await composer.createTestSkeleton(parsedScenario);
-    expect(testSkeleton.testCases[0].steps).toContainEqual({
-      description: '이메일 입력',
-      pageObject: 'LoginPage',
-      method: 'fillEmail',
-      parameters: ['test@example.com']
-    });
-  });
+  ```bash
+  cd playground
+  node ../dist/cli.js generate -s tests/scenarios/login-test.md
+  # tests/pages/LoginPage.ts, MainPage.ts 생성 확인
+  ```
+
+- [x] 8.2 TestFileSkeleton 생성
+  - LLM 기반으로 테스트 파일 코드 생성
+  - test.describe와 test.step 구조
+  - Page Object 메서드 호출
+  - _Requirements: 5.1, 5.2_
+  
+  **구현 완료:**
+  - 테스트 파일 코드 직접 생성
+  - test.step으로 단계 구분
+  - Page Object import 및 사용
+  
+  **테스트 방법:**
+  ```bash
+  # tests/test.spec.ts 생성 확인
+  cat playground/tests/test.spec.ts
   ```
 
 **Phase 2 완료 기준:**
 - ✅ 시나리오 문서 파싱 완료
-- ✅ Page Object Skeleton 생성 (메모리)
-- ✅ Test File Skeleton 생성 (메모리)
+- ✅ Page Object Skeleton 생성 (TypeScript 코드)
+- ✅ Test File Skeleton 생성 (TypeScript 코드)
+- ✅ BasePage 템플릿 자동 생성
 - ✅ 다음 단계(MCP 검증)를 위한 준비 완료
 
 ---

@@ -324,70 +324,135 @@ class PageObjectGenerator {
 - 페이지 목록, 경로, 테스트 플로우 파싱
 - 각 플로우에서 필요한 요소 식별
 
-#### 2단계: POM 껍데기 생성 (메모리)
-```typescript
-// 메모리에서 생성되는 PageObjectSkeleton
-interface PageObjectSkeleton {
-  name: string;
-  path: string;
-  elements: ElementSkeleton[];
-  methods: MethodSkeleton[];
-}
+#### 2단계: LLM 기반 POM Skeleton 코드 생성
 
-interface ElementSkeleton {
-  name: string;           // 예: 'emailInput'
-  purpose: string;        // 예: '이메일 입력'
-  type: 'input' | 'button' | 'text' | 'link';
-  selector: null;         // 아직 비어있음
-}
+**시나리오 문서 예시:**
+```markdown
+# 로그인 테스트
 
-interface MethodSkeleton {
-  name: string;           // 예: 'login'
-  parameters: Parameter[];
-  steps: string[];        // 예: ['emailInput에 입력', 'passwordInput에 입력', 'loginButton 클릭']
-  implementation: null;   // 아직 비어있음
-}
+## 1. 로그인 페이지에서 로그인을 한다
+1) 휴대폰 번호 인풋에 값을 입력하고
+2) 비밀번호 인풋에 입력하고
+3) 로그인 버튼을 누른다
 
-// 예시
-const loginPageSkeleton: PageObjectSkeleton = {
-  name: 'LoginPage',
-  path: '/login',
-  elements: [
-    { name: 'emailInput', purpose: '이메일 입력', type: 'input', selector: null },
-    { name: 'passwordInput', purpose: '비밀번호 입력', type: 'input', selector: null },
-    { name: 'loginButton', purpose: '로그인 버튼', type: 'button', selector: null }
-  ],
-  methods: [
-    {
-      name: 'login',
-      parameters: [{ name: 'email', type: 'string' }, { name: 'password', type: 'string' }],
-      steps: ['emailInput에 email 입력', 'passwordInput에 password 입력', 'loginButton 클릭'],
-      implementation: null
-    }
-  ]
-};
+## 2. 로그인 완료 후 메인페이지로 이동했는지 확인한다
+1) 이동한 경로가 '/'인지 확인한다
+2) 페이지에 '메인페이지' 텍스트가 있는지 확인한다
 ```
 
-#### 3단계: 테스트 파일 껍데기 생성 (메모리)
+**LLM 분석 결과:**
+- **필요한 페이지**: LoginPage, MainPage
+- **LoginPage 요소**: phoneNumberInput, passwordInput, loginButton
+- **MainPage 요소**: mainPageText
+- **필수 메서드**: 
+  - 모든 POM: `goto()`, `isOnPage()`
+  - LoginPage: `fillPhoneNumber()`, `fillPassword()`, `clickLoginButton()`
+  - MainPage: `isMainPageDisplayed()`
+
+**생성되는 POM Skeleton (TypeScript 코드):**
+
 ```typescript
-interface TestFileSkeleton {
-  name: string;
-  testCases: TestCaseSkeleton[];
+// LoginPage.ts
+import { Page, Locator } from '@playwright/test';
+import { BasePage } from './BasePage';
+
+export class LoginPage extends BasePage {
+  readonly phoneNumberInput: Locator;
+  readonly passwordInput: Locator;
+  readonly loginButton: Locator;
+  
+  constructor(page: Page) {
+    super(page);
+    // PLACEHOLDER: MCP로 실제 선택자 찾기
+    this.phoneNumberInput = this.page.locator('PLACEHOLDER_phoneNumberInput');
+    this.passwordInput = this.page.locator('PLACEHOLDER_passwordInput');
+    this.loginButton = this.page.locator('PLACEHOLDER_loginButton');
+  }
+  
+  async goto() {
+    await this.page.goto('/login');
+  }
+  
+  async isOnPage(): Promise<boolean> {
+    return this.page.url().includes('/login');
+  }
+  
+  async fillPhoneNumber(phoneNumber: string) {
+    // TODO: MCP로 구현
+    await this.phoneNumberInput.fill(phoneNumber);
+  }
+  
+  async fillPassword(password: string) {
+    // TODO: MCP로 구현
+    await this.passwordInput.fill(password);
+  }
+  
+  async clickLoginButton() {
+    // TODO: MCP로 구현
+    await this.loginButton.click();
+  }
 }
 
-interface TestCaseSkeleton {
-  description: string;
-  steps: TestStepSkeleton[];
-}
-
-interface TestStepSkeleton {
-  description: string;
-  pageObject: string;
-  method: string;
-  parameters?: any[];
-  assertion?: string;
+// MainPage.ts
+export class MainPage extends BasePage {
+  readonly mainPageText: Locator;
+  
+  constructor(page: Page) {
+    super(page);
+    this.mainPageText = this.page.locator('PLACEHOLDER_mainPageText');
+  }
+  
+  async goto() {
+    await this.page.goto('/');
+  }
+  
+  async isOnPage(): Promise<boolean> {
+    return this.page.url() === '/';
+  }
+  
+  async isMainPageDisplayed(): Promise<boolean> {
+    // TODO: MCP로 구현
+    return await this.mainPageText.isVisible();
+  }
 }
 ```
+
+#### 3단계: 테스트 파일 Skeleton 생성
+
+**생성되는 테스트 코드:**
+```typescript
+import { test, expect } from '@playwright/test';
+import { LoginPage } from './pages/LoginPage';
+import { MainPage } from './pages/MainPage';
+
+test.describe('로그인 테스트', () => {
+  test('로그인 플로우', async ({ page }) => {
+    const loginPage = new LoginPage(page);
+    const mainPage = new MainPage(page);
+    
+    await test.step('로그인 페이지에서 로그인', async () => {
+      await loginPage.goto();
+      await loginPage.fillPhoneNumber('01012345678');
+      await loginPage.fillPassword('password123');
+      await loginPage.clickLoginButton();
+    });
+    
+    await test.step('메인페이지로 이동 확인', async () => {
+      expect(await mainPage.isOnPage()).toBeTruthy();
+      expect(await mainPage.isMainPageDisplayed()).toBeTruthy();
+    });
+  });
+});
+```
+
+**핵심 규칙:**
+1. **test.describe**: 테스트 시나리오 전체 (예: "로그인 테스트")
+2. **test.step**: 각 주요 단계 (예: "1. 로그인 페이지에서 로그인")
+3. **필수 POM 메서드**: 
+   - `goto()`: 해당 페이지로 이동
+   - `isOnPage()`: 현재 페이지 경로 확인
+4. **요소 선택자**: PLACEHOLDER로 시작, Phase 3에서 MCP로 실제 선택자 찾기
+5. **메서드 구현**: TODO 주석, Phase 3에서 MCP로 실제 동작 검증
 
 #### 4단계: MCP 실시간 검증 및 채워넣기
 

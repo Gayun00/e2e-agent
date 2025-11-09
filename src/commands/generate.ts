@@ -65,10 +65,68 @@ export async function generateFromScenario(scenarioPath: string): Promise<void> 
   });
   console.log('');
 
-  // 6. TODO: Skeleton 생성 및 MCP 검증
-  console.log('🔨 다음 단계: Skeleton 생성 및 MCP 검증');
-  console.log('   (아직 구현되지 않음)\n');
+  // 6. Skeleton 생성
+  console.log('🔨 Skeleton 생성 중...\n');
+  
+  const { AnthropicLLMService } = await import('../services/llm.js');
+  const { SkeletonGenerator } = await import('../services/skeleton-generator.js');
+  
+  const llm = new AnthropicLLMService(config.anthropicApiKey);
+  const skeletonGenerator = new SkeletonGenerator(llm);
+  
+  let skeletons;
+  try {
+    skeletons = await skeletonGenerator.generateSkeletons(document);
+    console.log('\n✓ Skeleton 생성 완료\n');
+  } catch (error) {
+    console.error('❌ Skeleton 생성 실패:', error);
+    process.exit(1);
+  }
 
-  console.log('✅ 시나리오 파싱 완료!');
-  console.log('💡 다음 태스크: 9.1 PageObjectSkeleton 생성 구현\n');
+  // 7. 생성된 코드 미리보기
+  console.log('📄 생성된 Page Objects:');
+  skeletons.pageObjects.forEach((po) => {
+    console.log(`   - ${po.pageName}.ts`);
+  });
+  console.log(`\n📄 생성된 테스트 파일: ${skeletons.testFile.testName}.spec.ts\n`);
+
+  // 8. 파일 저장
+  console.log('💾 파일 저장 중...\n');
+  
+  const fs = await import('fs/promises');
+  const path = await import('path');
+  
+  const pagesDir = path.join(config.testsDirectory, 'pages');
+  const testsDir = config.testsDirectory;
+  
+  // 디렉토리 생성
+  await fs.mkdir(pagesDir, { recursive: true });
+  await fs.mkdir(testsDir, { recursive: true });
+  
+  // BasePage 생성 (템플릿 사용)
+  const basePagePath = path.join(pagesDir, 'BasePage.ts');
+  const basePageTemplate = await fs.readFile(
+    path.join(process.cwd(), 'src', 'templates', 'BasePage.template.ts'),
+    'utf-8'
+  );
+  await fs.writeFile(basePagePath, basePageTemplate, 'utf-8');
+  console.log(`✓ ${basePagePath} (템플릿)`);
+  
+  // Page Objects 저장
+  for (const po of skeletons.pageObjects) {
+    const filePath = path.join(pagesDir, `${po.pageName}.ts`);
+    await fs.writeFile(filePath, po.code, 'utf-8');
+    console.log(`✓ ${filePath}`);
+  }
+  
+  // 테스트 파일 저장
+  const testFilePath = path.join(testsDir, `${skeletons.testFile.testName}.spec.ts`);
+  await fs.writeFile(testFilePath, skeletons.testFile.code, 'utf-8');
+  console.log(`✓ ${testFilePath}\n`);
+
+  console.log('✅ 테스트 생성 완료!\n');
+  console.log('📝 생성된 파일:');
+  console.log(`   - Page Objects: ${skeletons.pageObjects.length}개`);
+  console.log(`   - 테스트 파일: 1개\n`);
+  console.log('💡 다음 단계: Phase 3 - MCP로 PLACEHOLDER 선택자 찾기\n');
 }
