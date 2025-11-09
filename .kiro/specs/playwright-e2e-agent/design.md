@@ -82,8 +82,15 @@ interface CLIOptions {
 interface AgentConfig {
   pagesDirectory: string;      // 기본값: 'tests/pages'
   testsDirectory: string;      // 기본값: 'tests'
+  mocksDirectory: string;      // 기본값: 'tests/mocks'
   baseUrl: string;
   anthropicApiKey: string;
+  auth?: {
+    enabled: boolean;
+    emailEnvVar: string;       // 예: 'TEST_USER_EMAIL'
+    passwordEnvVar: string;    // 예: 'TEST_USER_PASSWORD'
+    loginPath: string;         // 예: '/login'
+  };
   langfuseConfig?: {
     publicKey: string;
     secretKey: string;
@@ -104,8 +111,9 @@ interface AgentConfig {
 
 ```typescript
 interface TestGenerationWorkflow {
-  // 1단계: 도메인 지식 로드
+  // 1단계: 도메인 지식 로드 및 인증 설정
   loadDomainKnowledge(): Promise<DomainKnowledge | null>;
+  loadAuthConfig(): Promise<AuthConfig | null>;
   
   // 2단계: 테스트 시나리오 분석
   analyzeScenario(scenario: string): Promise<ScenarioAnalysis>;
@@ -113,16 +121,17 @@ interface TestGenerationWorkflow {
   // 3단계: 페이지 객체 생성
   generatePageObjects(analysis: ScenarioAnalysis): Promise<PageObject[]>;
   
-  // 4단계: 요소 선택자 결정
+  // 4단계: 요소 선택자 결정 (자동 로그인 포함)
   determineSelectors(pageObject: PageObject): Promise<ElementSelector[]>;
   
   // 5단계: Mocking 설정 및 스크린샷 생성
   setupMockingAndScreenshots(pageObject: PageObject): Promise<void>;
+  checkAndShareCommonMocks(): Promise<void>;
   
   // 6단계: 테스트 동작 생성
   generateActions(pageObject: PageObject): Promise<PageAction[]>;
   
-  // 7단계: 테스트 시나리오 구성
+  // 7단계: 테스트 시나리오 구성 (로그인 단계 포함)
   composeTestScenario(pageObjects: PageObject[]): Promise<TestFile>;
   
   // 8단계: 문서 업데이트
@@ -140,10 +149,13 @@ interface WorkflowState {
 
 enum WorkflowStep {
   LOAD_DOMAIN_KNOWLEDGE = 'load_domain_knowledge',
+  LOAD_AUTH_CONFIG = 'load_auth_config',
   ANALYZE_SCENARIO = 'analyze_scenario',
   GENERATE_PAGE_OBJECTS = 'generate_page_objects',
   DETERMINE_SELECTORS = 'determine_selectors',
+  AUTO_LOGIN_IF_NEEDED = 'auto_login_if_needed',
   SETUP_MOCKING_SCREENSHOTS = 'setup_mocking_screenshots',
+  CHECK_COMMON_MOCKS = 'check_common_mocks',
   GENERATE_ACTIONS = 'generate_actions',
   COMPOSE_TEST = 'compose_test',
   UPDATE_DOCUMENTATION = 'update_documentation',
@@ -324,7 +336,94 @@ class SelectorDeterminer {
 }
 ```
 
-### 7. Screenshot and Mocking Service
+### 7. Authentication Service
+
+**책임**: 자동 로그인 감지 및 처리, 환경변수 기반 인증 관리
+
+```typescript
+interface AuthConfig {
+  enabled: boolean;
+  emailEnvVar: string;
+  passwordEnvVar: string;
+  loginPath: string;
+}
+
+interface LoginFlow {
+  steps: LoginStep[];
+  successIndicator: string;  // 로그인 성공 확인 방법
+}
+
+interface LoginStep {
+  action: 'navigate' | 'fill' | 'click' | 'wait';
+  selector?: string;
+  value?: string;
+  target?: string;
+}
+
+class AuthenticationService {
+  private config: AuthConfig;
+  private mcpService: PlaywrightMCPService;
+  
+  // 로그인 필요 여부 감지
+  async detectAuthRequired(currentUrl: string, response?: any): Promise<boolean>;
+  
+  // 환경변수에서 인증 정보 로드
+  async loadCredentials(): Promise<{ email: string; password: string }>;
+  
+  // 도메인 문서에서 로그인 플로우 추출
+  async extractLoginFlow(domainKnowledge: DomainKnowledge): Promise<LoginFlow>;
+  
+  // 자동 로그인 수행
+  async performAutoLogin(loginFlow: LoginFlow, credentials: any): Promise<boolean>;
+  
+  // 테스트에 로그인 단계 추가
+  async addLoginToTest(testFile: TestFile): Promise<TestFile>;
+  
+  // .env 파일 생성
+  async createEnvTemplate(projectPath: string): Promise<void>;
+  
+  // .gitignore 업데이트
+  async updateGitignore(projectPath: string): Promise<void>;
+}
+```
+
+### 8. Mocking Management Service
+
+**책임**: Mocking 공통화 및 재사용 관리
+
+```typescript
+interface MockingAnalysis {
+  endpoint: string;
+  usedInPages: string[];
+  canBeShared: boolean;
+  mockingCode: string;
+}
+
+class MockingManagementService {
+  private testsDirectory: string;
+  private mocksDirectory: string;
+  
+  // 테스트 디렉토리에서 API 엔드포인트 검색
+  async searchExistingMocks(endpoint: string): Promise<MockingAnalysis[]>;
+  
+  // 공통 mocking 추출 제안
+  async suggestCommonMocking(analyses: MockingAnalysis[]): Promise<string[]>;
+  
+  // 공통 mocking 파일 생성
+  async createCommonMock(endpoint: string, mockingCode: string): Promise<string>;
+  
+  // 페이지 객체에서 공통 mocking import
+  async updatePageObjectToUseCommonMock(
+    pageObject: PageObject,
+    commonMockPath: string
+  ): Promise<void>;
+  
+  // 기존 공통 mocking 확인
+  async findReusableMocks(dependencies: PageDependencies): Promise<Map<string, string>>;
+}
+```
+
+### 9. Screenshot and Mocking Service
 
 **책임**: 페이지별 스크린샷 생성, API/스토리지 Mocking 관리
 
