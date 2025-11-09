@@ -246,32 +246,62 @@ export class ${pageName} {
       .map((p) => `import { ${p.name} } from './pages/${p.name}';`)
       .join('\n');
 
+    // 각 페이지 객체의 실제 코드를 읽어서 사용 가능한 선택자 파악
+    const pageObjectDetails = await Promise.all(
+      pageInfos.map(async (p) => {
+        const filePath = `tests/pages/${p.name}.ts`;
+        try {
+          if (fs.existsSync(filePath)) {
+            const code = fs.readFileSync(filePath, 'utf-8');
+            return `${p.name} (경로: ${p.path}):\n${code}`;
+          }
+        } catch (error) {
+          // 파일이 없으면 기본 정보만
+        }
+        return `${p.name} (경로: ${p.path})`;
+      })
+    );
+
     const prompt = `당신은 Playwright 테스트 전문가입니다. 주어진 시나리오에 대한 E2E 테스트 코드를 생성해주세요.
 
 테스트 시나리오: ${testDescription}
 
 사용 가능한 페이지 객체:
-${pageInfos.map((p) => `- ${p.name} (경로: ${p.path})`).join('\n')}
+${pageObjectDetails.join('\n\n')}
 
 요구사항:
 1. Playwright test 프레임워크 사용
 2. 제공된 페이지 객체들을 import하여 사용
 3. test.describe로 테스트 그룹화
 4. test() 함수로 개별 테스트 작성
-5. 페이지 객체의 메서드를 활용한 테스트 시나리오 구현
-6. expect를 사용한 assertion 포함
+5. **페이지 객체에 정의된 선택자(Locator)를 직접 사용**:
+   - 예: await loginPage.emailInput.fill('test@test.com')
+   - 예: await loginPage.loginButton.click()
+6. **페이지 객체의 메서드 사용**:
+   - goto(): 페이지 이동
+   - isOnPage(): 경로 확인
+7. expect를 사용한 assertion 포함
+8. 페이지 객체에 없는 선택자는 사용하지 말 것
 
 예시 구조:
 \`\`\`typescript
 import { test, expect } from '@playwright/test';
 ${pageImports}
 
-test.describe('테스트 그룹명', () => {
-  test('테스트 케이스명', async ({ page }) => {
+test.describe('로그인 테스트', () => {
+  test('성공적인 로그인', async ({ page }) => {
     const loginPage = new LoginPage(page);
+    
+    // 페이지 이동
     await loginPage.goto();
-    // 테스트 로직...
-    expect(await page.title()).toContain('Expected Title');
+    
+    // 페이지 객체의 선택자 사용
+    await loginPage.emailInput.fill('test@test.com');
+    await loginPage.passwordInput.fill('password123');
+    await loginPage.loginButton.click();
+    
+    // 검증
+    await expect(page).toHaveURL('/dashboard');
   });
 });
 \`\`\`

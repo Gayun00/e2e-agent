@@ -247,6 +247,37 @@ async function handleGenerateTest(description: string, config: AgentConfig) {
     }
 
     console.log(`\n✅ 모든 페이지 객체가 ${pagesDirectory}에 저장되었습니다!\n`);
+    
+    // 5. 테스트 파일 생성
+    console.log('📝 테스트 파일 생성 중...\n');
+    
+    const testCode = await pageGenerator.generateTestFile(description, pageInfos);
+    
+    console.log('✓ 테스트 코드 생성 완료\n');
+    
+    // 테스트 파일 저장
+    const testsDirectory = config.testsDirectory || './tests';
+    const testName = pageInfos.length === 1 
+      ? pageInfos[0].name.replace('Page', '').toLowerCase()
+      : 'scenario';
+    
+    console.log(`💾 테스트 파일 저장 중: ${testsDirectory}/${testName}.spec.ts`);
+    const testFilePath = await pageGenerator.saveTestFile(testName, testCode, testsDirectory);
+    console.log(`✅ 테스트 파일 저장 완료: ${testFilePath}\n`);
+    
+    // 생성된 테스트 코드 미리보기
+    console.log('생성된 테스트 코드 미리보기:\n');
+    console.log('─'.repeat(50));
+    console.log(testCode.split('\n').slice(0, 20).join('\n'));
+    if (testCode.split('\n').length > 20) {
+      console.log('...');
+    }
+    console.log('─'.repeat(50));
+    console.log('');
+    
+    console.log('🎉 테스트 생성 완료!\n');
+    console.log('다음 명령어로 테스트를 실행할 수 있습니다:');
+    console.log(`  npx playwright test ${testFilePath}\n`);
   } catch (error) {
     console.error('❌ 에러 발생:', error instanceof Error ? error.message : error);
     console.log('');
