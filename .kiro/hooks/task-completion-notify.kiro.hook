@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "name": "Task Completion Notifier",
+  "description": "When a task is completed, instead of automatically running tests or builds, notify the user about how to test the changes and update the task document with completed checkboxes",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "devlog/*.md",
+      "src/**/*.ts",
+      "src/**/*.js"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A task has been completed. Please:\n1. Do NOT automatically run test or build commands\n2. Analyze what was changed and provide clear instructions to the user on how to test these changes manually\n3. Update the task documentation (devlog files) by marking completed checkboxes as checked\n4. Summarize what was accomplished and what testing approach is recommended"
+  }
+}

@@ -84,7 +84,7 @@
 
 ### 3. LLM 기본 통합
 
-- [ ] 3.1 Anthropic 클라이언트 구현
+- [x] 3.1 Anthropic 클라이언트 구현
   - Anthropic SDK 초기화
   - 기본 chat 메서드 구현
   - 에러 처리

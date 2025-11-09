@@ -1,0 +1,6 @@
+{
+  "baseUrl": "http://localhost:3000",
+  "pagesDirectory": "tests/pages",
+  "testsDirectory": "tests",
+  "mocksDirectory": "tests/mocks"
+}
