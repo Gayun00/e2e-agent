@@ -5,6 +5,7 @@ import inquirer from 'inquirer';
 import { loadConfig } from './config/loader';
 import { parseCommand } from './parser/command-parser';
 import { AnthropicLLMService } from './services/llm';
+import { PageGeneratorService } from './services/page-generator';
 import type { AgentConfig } from './types/config';
 
 const program = new Command();
@@ -114,6 +115,7 @@ async function handleGenerateTest(description: string, config: AgentConfig) {
 
     // LLM 서비스 초기화
     const llm = new AnthropicLLMService(config.anthropicApiKey);
+    const pageGenerator = new PageGeneratorService(llm);
 
     // 시나리오 분석
     const analysis = await llm.analyzeScenario(description);
@@ -121,7 +123,37 @@ async function handleGenerateTest(description: string, config: AgentConfig) {
     console.log('✅ 분석 완료!');
     console.log(`📄 필요한 페이지: ${analysis.pages.join(', ')}\n`);
 
-    console.log('💡 다음 단계에서 실제 페이지 객체와 테스트 파일을 생성할 예정입니다.\n');
+    // 각 페이지에 대해 경로 추론 및 확인
+    const pageInfos: Array<{ name: string; path: string }> = [];
+
+    for (const pageName of analysis.pages) {
+      console.log(`\n📍 ${pageName} 경로 추론 중...`);
+
+      // LLM으로 경로 추론
+      const inferredPath = await pageGenerator.inferPagePath(pageName);
+      console.log(`   추론된 경로: ${inferredPath}`);
+
+      // 사용자 확인
+      const { pathConfirmation } = await inquirer.prompt({
+        type: 'input',
+        name: 'pathConfirmation',
+        message: '경로가 맞나요? (Enter=확인, 또는 올바른 경로 입력)',
+        default: inferredPath,
+      });
+
+      const finalPath = pathConfirmation.trim() || inferredPath;
+      pageInfos.push({ name: pageName, path: finalPath });
+
+      console.log(`   ✓ 확정된 경로: ${finalPath}`);
+    }
+
+    console.log('\n✅ 모든 페이지 경로 확정 완료!');
+    console.log('\n📋 페이지 목록:');
+    pageInfos.forEach(({ name, path }) => {
+      console.log(`   - ${name}: ${path}`);
+    });
+
+    console.log('\n💡 다음 단계에서 실제 페이지 객체와 테스트 파일을 생성할 예정입니다.\n');
   } catch (error) {
     console.error('❌ 에러 발생:', error instanceof Error ? error.message : error);
     console.log('');
