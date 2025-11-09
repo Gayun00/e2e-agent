@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 import inquirer from 'inquirer';
 import { loadConfig } from './config/loader';
+import { parseCommand } from './parser/command-parser';
 
 const program = new Command();
 
@@ -74,18 +75,31 @@ function showHelp() {
 }
 
 async function handleUserInput(input: string, config: any) {
-  // 현재는 간단한 응답만 (다음 단계에서 LLM 통합)
-  console.log(`\n📝 입력 받음: "${input}"`);
+  // 명령 파싱
+  const intent = parseCommand(input);
 
-  // 기본 의도 파악
-  if (input.includes('초기화') || input.includes('init')) {
-    console.log('💡 프로젝트 초기화 기능은 곧 구현될 예정입니다.\n');
-  } else if (input.includes('테스트') && (input.includes('만들') || input.includes('생성'))) {
-    console.log('💡 테스트 생성 기능은 곧 구현될 예정입니다.');
-    console.log('   다음 단계에서 LLM을 통합하여 실제로 테스트를 생성할 수 있습니다.\n');
-  } else {
-    console.log('💡 아직 이 명령을 처리할 수 없습니다.');
-    console.log('   /help를 입력하여 사용 가능한 명령을 확인하세요.\n');
+  console.log(`\n📝 입력 받음: "${input}"`);
+  console.log(`🔍 의도 파악: ${intent.type}`);
+
+  // 의도에 따라 처리
+  switch (intent.type) {
+    case 'init_project':
+      console.log('💡 프로젝트 초기화 기능은 곧 구현될 예정입니다.\n');
+      break;
+
+    case 'generate_test':
+      console.log('💡 테스트 생성 기능은 곧 구현될 예정입니다.');
+      console.log('   다음 단계에서 LLM을 통합하여 실제로 테스트를 생성할 수 있습니다.\n');
+      break;
+
+    case 'help':
+      showHelp();
+      break;
+
+    case 'unknown':
+      console.log('💡 아직 이 명령을 처리할 수 없습니다.');
+      console.log('   /help를 입력하여 사용 가능한 명령을 확인하세요.\n');
+      break;
   }
 }
 
