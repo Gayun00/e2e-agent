@@ -2,7 +2,16 @@
 
 ## 개요
 
-Playwright E2E 테스트 자동 생성 AI Agent는 사용자가 제공한 테스트 시나리오와 도메인 지식을 기반으로 Page Object Model 패턴을 따르는 테스트 코드를 생성합니다. Agent는 Anthropic Claude API를 사용하여 자연어 처리 및 코드 생성을 수행하고, Langfuse를 통해 LLM 호출을 추적 및 모니터링합니다.
+Playwright E2E 테스트 자동 생성 AI Agent는 사용자가 제공한 **정형화된 테스트 시나리오 문서**를 기반으로 Page Object Model 패턴을 따르는 테스트 코드를 생성합니다. Agent는 Anthropic Claude API를 사용하여 코드 생성을 수행하고, Playwright MCP를 통해 실시간으로 브라우저에서 검증하면서 선택자와 메서드를 완성합니다.
+
+### 핵심 워크플로우
+
+1. **테스트 시나리오 문서 입력**: 사용자가 페이지, 경로, 테스트 플로우가 정의된 문서 제공
+2. **POM 껍데기 생성**: 문서 기반으로 페이지 객체와 선택자, 메서드 껍데기 생성 (메모리)
+3. **테스트 파일 생성**: 껍데기 POM을 사용하여 테스트 코드 작성 (메모리)
+4. **MCP 실시간 검증**: Playwright MCP로 브라우저를 띄워 테스트 실행하면서 선택자와 메서드 채워넣기
+5. **실패 시 사용자 검토**: 특정 단계 실패 시 사용자에게 확인 요청
+6. **최종 파일 저장**: 완성된 POM과 테스트 파일을 디스크에 저장
 
 ## 아키텍처
 
@@ -111,56 +120,101 @@ interface AgentConfig {
 
 ```typescript
 interface TestGenerationWorkflow {
-  // 1단계: 도메인 지식 로드 및 인증 설정
-  loadDomainKnowledge(): Promise<DomainKnowledge | null>;
-  loadAuthConfig(): Promise<AuthConfig | null>;
+  // 1단계: 테스트 시나리오 문서 로드
+  loadScenarioDocument(filePath: string): Promise<ScenarioDocument>;
   
-  // 2단계: 테스트 시나리오 분석
-  analyzeScenario(scenario: string): Promise<ScenarioAnalysis>;
+  // 2단계: 시나리오 문서 파싱
+  parseScenarioDocument(document: ScenarioDocument): Promise<ParsedScenario>;
   
-  // 3단계: 페이지 객체 생성
-  generatePageObjects(analysis: ScenarioAnalysis): Promise<PageObject[]>;
+  // 3단계: POM 껍데기 생성 (메모리)
+  generatePageObjectSkeletons(scenario: ParsedScenario): Promise<PageObjectSkeleton[]>;
   
-  // 4단계: 요소 선택자 결정 (자동 로그인 포함)
-  determineSelectors(pageObject: PageObject): Promise<ElementSelector[]>;
+  // 4단계: 테스트 파일 껍데기 생성 (메모리)
+  generateTestFileSkeleton(
+    scenario: ParsedScenario,
+    pageObjects: PageObjectSkeleton[]
+  ): Promise<TestFileSkeleton>;
   
-  // 5단계: Mocking 설정 및 스크린샷 생성
-  setupMockingAndScreenshots(pageObject: PageObject): Promise<void>;
-  checkAndShareCommonMocks(): Promise<void>;
+  // 5단계: MCP 브라우저 세션 시작
+  startMCPSession(): Promise<MCPSession>;
   
-  // 6단계: 테스트 동작 생성
-  generateActions(pageObject: PageObject): Promise<PageAction[]>;
+  // 6단계: 실시간 검증 및 채워넣기
+  fillAndVerifyWithMCP(
+    pageObjects: PageObjectSkeleton[],
+    testFile: TestFileSkeleton,
+    mcpSession: MCPSession
+  ): Promise<VerificationResult>;
   
-  // 7단계: 테스트 시나리오 구성 (로그인 단계 포함)
-  composeTestScenario(pageObjects: PageObject[]): Promise<TestFile>;
+  // 7단계: 실패 처리 및 사용자 검토
+  handleFailures(
+    result: VerificationResult
+  ): Promise<UserReviewResult>;
   
-  // 8단계: 문서 업데이트
-  updateDocumentation(pageObjects: PageObject[]): Promise<void>;
+  // 8단계: 최종 파일 저장
+  saveCompletedFiles(
+    pageObjects: PageObject[],
+    testFiles: TestFile[]
+  ): Promise<void>;
 }
 
 interface WorkflowState {
   currentStep: WorkflowStep;
-  domainKnowledge?: DomainKnowledge;
-  scenarioAnalysis?: ScenarioAnalysis;
-  pageObjects: PageObject[];
-  testFiles: TestFile[];
+  scenarioDocument?: ScenarioDocument;
+  parsedScenario?: ParsedScenario;
+  pageObjectSkeletons: PageObjectSkeleton[];
+  testFileSkeleton?: TestFileSkeleton;
+  mcpSession?: MCPSession;
+  verificationResult?: VerificationResult;
+  completedPageObjects: PageObject[];
+  completedTestFiles: TestFile[];
   errors: WorkflowError[];
 }
 
 enum WorkflowStep {
-  LOAD_DOMAIN_KNOWLEDGE = 'load_domain_knowledge',
-  LOAD_AUTH_CONFIG = 'load_auth_config',
-  ANALYZE_SCENARIO = 'analyze_scenario',
-  GENERATE_PAGE_OBJECTS = 'generate_page_objects',
-  DETERMINE_SELECTORS = 'determine_selectors',
-  AUTO_LOGIN_IF_NEEDED = 'auto_login_if_needed',
-  SETUP_MOCKING_SCREENSHOTS = 'setup_mocking_screenshots',
-  CHECK_COMMON_MOCKS = 'check_common_mocks',
-  GENERATE_ACTIONS = 'generate_actions',
-  COMPOSE_TEST = 'compose_test',
-  UPDATE_DOCUMENTATION = 'update_documentation',
+  LOAD_SCENARIO_DOCUMENT = 'load_scenario_document',
+  PARSE_SCENARIO = 'parse_scenario',
+  GENERATE_POM_SKELETONS = 'generate_pom_skeletons',
+  GENERATE_TEST_SKELETON = 'generate_test_skeleton',
+  START_MCP_SESSION = 'start_mcp_session',
+  FILL_AND_VERIFY = 'fill_and_verify',
+  HANDLE_FAILURES = 'handle_failures',
+  SAVE_FILES = 'save_files',
   COMPLETE = 'complete'
 }
+```
+
+### 테스트 시나리오 문서 형식
+
+사용자가 제공하는 정형화된 문서 구조:
+
+```markdown
+# 테스트 시나리오: 로그인 플로우
+
+## 페이지 정의
+
+### LoginPage
+- 경로: `/login`
+- 설명: 사용자 로그인 페이지
+
+### DashboardPage
+- 경로: `/dashboard`
+- 설명: 로그인 후 대시보드
+
+## 테스트 플로우
+
+### 성공적인 로그인
+1. LoginPage로 이동
+2. 이메일 입력 (test@example.com)
+3. 비밀번호 입력 (password123)
+4. 로그인 버튼 클릭
+5. DashboardPage로 리다이렉트 확인
+6. 환영 메시지 확인
+
+### 실패한 로그인
+1. LoginPage로 이동
+2. 잘못된 이메일 입력
+3. 로그인 버튼 클릭
+4. 에러 메시지 확인
 ```
 
 ### 3. Domain Document Manager
@@ -197,7 +251,7 @@ class DomainDocumentManager {
 
 ### 4. Page Object Generator
 
-**책임**: 페이지 객체 클래스 생성, 경로 추론, 실제 페이지 소스 분석
+**책임**: 페이지 객체 클래스 생성, 경로 추론, 테스트 플로우 기반 요소 식별
 
 ```typescript
 interface PageObject {
@@ -208,18 +262,20 @@ interface PageObject {
   mockingConfig?: MockingConfig;
   screenshots?: ScreenshotResult[];
   filePath: string;
-  sourceFilePath?: string;  // 실제 페이지 소스 파일 경로
 }
 
 interface ElementDefinition {
   name: string;
+  purpose: string;  // 테스트 플로우에서의 역할 설명
   selector: ElementSelector;
   type: 'button' | 'input' | 'text' | 'link' | 'select' | 'checkbox' | 'radio';
+  verified: boolean;  // MCP로 검증 완료 여부
 }
 
 interface ElementSelector {
   strategy: SelectorStrategy;
   value: string;
+  placeholder?: boolean;  // Phase 1에서는 임시 선택자
   options?: Record<string, any>;
 }
 
@@ -239,33 +295,211 @@ class PageObjectGenerator {
   async inferPath(pageName: string, domainKnowledge?: DomainKnowledge): Promise<string>;
   async confirmPath(pageName: string, inferredPath: string): Promise<string>;
   
-  // 실제 페이지 소스 파일 찾기
-  async findPageSourceFile(pagePath: string): Promise<string | null>;
+  // Phase 1: 테스트 플로우 기반 요소 식별
+  async identifyRequiredElements(
+    scenario: ScenarioAnalysis,
+    pageName: string
+  ): Promise<RequiredElement[]>;
   
-  // 페이지 소스 코드를 읽어서 상호작용 요소 추출
-  async analyzePageSource(sourceCode: string): Promise<ElementDefinition[]>;
+  // Phase 1: 임시 선택자로 페이지 객체 생성
+  async generateClassWithPlaceholders(
+    pageObject: PageObject,
+    requiredElements: RequiredElement[]
+  ): Promise<string>;
   
-  // 페이지 객체 클래스 생성 (실제 요소만 포함)
-  async generateClass(pageObject: PageObject): Promise<string>;
+  // Phase 2: MCP로 실제 선택자 찾기 및 업데이트
+  async updateSelectorsWithMCP(
+    pageObject: PageObject,
+    mcpService: PlaywrightMCPService
+  ): Promise<PageObject>;
   
   async writeToFile(pageObject: PageObject, code: string): Promise<void>;
 }
 ```
 
-**페이지 객체 생성 원칙**:
+**페이지 객체 생성 전략 (메모리 기반 워크플로우)**:
 
-1. **실제 페이지 소스 우선**: 페이지 경로(예: `/login`)로부터 실제 소스 파일(예: `src/pages/login.tsx`)을 찾아 분석
-2. **상호작용 요소만 추출**: 버튼, 입력 필드, 링크 등 사용자가 상호작용하는 요소만 선택자로 정의
-3. **선택자 우선순위**:
-   - `data-testid` 속성 (최우선)
-   - `id` 속성
-   - `placeholder` 속성
-   - `role`과 `name` 조합
-   - CSS 선택자 (최후의 수단)
-4. **필수 메서드**:
-   - `goto()`: 페이지로 이동
-   - `isOnPage()`: 현재 경로 확인 (`expect(page).toHaveURL()` 사용)
-5. **동작 메서드는 생성하지 않음**: 선택자만 정의하고, 실제 동작은 테스트 코드에서 직접 작성
+#### 1단계: 시나리오 문서 파싱
+- 사용자가 제공한 정형화된 문서에서 정보 추출
+- 페이지 목록, 경로, 테스트 플로우 파싱
+- 각 플로우에서 필요한 요소 식별
+
+#### 2단계: POM 껍데기 생성 (메모리)
+```typescript
+// 메모리에서 생성되는 PageObjectSkeleton
+interface PageObjectSkeleton {
+  name: string;
+  path: string;
+  elements: ElementSkeleton[];
+  methods: MethodSkeleton[];
+}
+
+interface ElementSkeleton {
+  name: string;           // 예: 'emailInput'
+  purpose: string;        // 예: '이메일 입력'
+  type: 'input' | 'button' | 'text' | 'link';
+  selector: null;         // 아직 비어있음
+}
+
+interface MethodSkeleton {
+  name: string;           // 예: 'login'
+  parameters: Parameter[];
+  steps: string[];        // 예: ['emailInput에 입력', 'passwordInput에 입력', 'loginButton 클릭']
+  implementation: null;   // 아직 비어있음
+}
+
+// 예시
+const loginPageSkeleton: PageObjectSkeleton = {
+  name: 'LoginPage',
+  path: '/login',
+  elements: [
+    { name: 'emailInput', purpose: '이메일 입력', type: 'input', selector: null },
+    { name: 'passwordInput', purpose: '비밀번호 입력', type: 'input', selector: null },
+    { name: 'loginButton', purpose: '로그인 버튼', type: 'button', selector: null }
+  ],
+  methods: [
+    {
+      name: 'login',
+      parameters: [{ name: 'email', type: 'string' }, { name: 'password', type: 'string' }],
+      steps: ['emailInput에 email 입력', 'passwordInput에 password 입력', 'loginButton 클릭'],
+      implementation: null
+    }
+  ]
+};
+```
+
+#### 3단계: 테스트 파일 껍데기 생성 (메모리)
+```typescript
+interface TestFileSkeleton {
+  name: string;
+  testCases: TestCaseSkeleton[];
+}
+
+interface TestCaseSkeleton {
+  description: string;
+  steps: TestStepSkeleton[];
+}
+
+interface TestStepSkeleton {
+  description: string;
+  pageObject: string;
+  method: string;
+  parameters?: any[];
+  assertion?: string;
+}
+```
+
+#### 4단계: MCP 실시간 검증 및 채워넣기
+
+**프로세스**:
+1. **MCP 브라우저 세션 시작**
+2. **테스트 실행 시뮬레이션**
+   - 테스트 플로우를 순서대로 실행
+   - 각 단계에서 필요한 선택자를 실시간으로 찾기
+   
+3. **선택자 찾기 및 검증**
+   ```typescript
+   // 예: "LoginPage로 이동" 단계
+   await mcpSession.navigate('/login');
+   
+   // 예: "이메일 입력" 단계
+   const emailSelector = await findAndVerifySelector({
+     purpose: '이메일 입력',
+     type: 'input',
+     candidates: [
+       'getByTestId("email")',
+       'getByPlaceholder("이메일")',
+       'getByRole("textbox", { name: "이메일" })'
+     ]
+   });
+   
+   // 찾은 선택자로 실제 동작 수행
+   await mcpSession.fill(emailSelector, 'test@example.com');
+   
+   // 성공하면 skeleton에 채워넣기
+   loginPageSkeleton.elements[0].selector = emailSelector;
+   ```
+
+4. **메서드 구현 생성**
+   - 검증된 선택자를 사용하여 메서드 구현 생성
+   ```typescript
+   loginPageSkeleton.methods[0].implementation = `
+     async login(email: string, password: string) {
+       await this.emailInput.fill(email);
+       await this.passwordInput.fill(password);
+       await this.loginButton.click();
+     }
+   `;
+   ```
+
+5. **실패 처리**
+   - 선택자를 찾지 못하거나 동작 실패 시
+   - 사용자에게 검토 요청
+   ```typescript
+   if (!emailSelector) {
+     const userInput = await promptUser({
+       message: '이메일 입력 필드를 찾을 수 없습니다.',
+       options: [
+         '1. 다른 선택자 시도',
+         '2. 수동으로 선택자 입력',
+         '3. 이 단계 건너뛰기'
+       ]
+     });
+   }
+   ```
+
+#### 5단계: 최종 파일 생성 및 저장
+
+모든 선택자와 메서드가 채워진 후:
+```typescript
+// 완성된 PageObject 생성
+class LoginPage extends BasePage {
+  emailInput = this.page.getByPlaceholder('이메일을 입력하세요');
+  passwordInput = this.page.getByPlaceholder('비밀번호');
+  loginButton = this.page.getByRole('button', { name: '로그인' });
+  
+  async goto() {
+    await this.page.goto('/login');
+  }
+  
+  async login(email: string, password: string) {
+    await this.emailInput.fill(email);
+    await this.passwordInput.fill(password);
+    await this.loginButton.click();
+  }
+}
+
+// 파일로 저장
+await fs.writeFile('tests/pages/LoginPage.ts', generatedCode);
+```
+
+**핵심 장점**:
+- ✅ 파일 읽기/쓰기 최소화 (최종 완성본만 저장)
+- ✅ 실시간 검증으로 정확도 높음
+- ✅ 테스트 플로우 순서대로 진행하여 자연스러움
+- ✅ 실패 시점에 즉시 사용자 개입 가능
+- ✅ 메모리에서 작업하므로 빠름
+
+**선택자 우선순위**:
+1. `data-testid` 속성 (최우선)
+2. `role`과 `name` 조합 (접근성 우선)
+3. `placeholder` 속성 (입력 필드)
+4. `id` 속성
+5. `label` 연결
+6. `text` 내용
+7. CSS 선택자 (최후의 수단)
+
+**필수 메서드**:
+- `goto()`: 페이지로 이동
+- `isOnPage()`: 현재 경로 확인
+- 공통 동작 메서드: BasePage에서 상속 (fillInput, clickElement 등)
+- 페이지별 동작 메서드: 테스트 플로우 기반 생성 (login, submit 등)
+
+**장점**:
+- ✅ 깊은 컴포넌트 구조에서도 필요한 요소만 집중
+- ✅ LLM이 모든 요소를 탐색할 필요 없음
+- ✅ Phase 1에서 빠르게 구조 생성, Phase 2에서 정확도 향상
+- ✅ 사용자가 테스트 플로우를 명확히 정의하면 더 정확한 결과
 
 ### 5. MCP Client Service
 
