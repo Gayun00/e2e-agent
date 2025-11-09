@@ -29,3 +29,9 @@ coverage/
 # Agent generated files (for testing)
 tests/
 screenshots/
+
+# Playground generated files (keep structure, ignore generated content)
+playground/.env
+playground/tests/
+playground/screenshots/
+playground/docs/

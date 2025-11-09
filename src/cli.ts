@@ -4,6 +4,8 @@ import { Command } from 'commander';
 import inquirer from 'inquirer';
 import { loadConfig } from './config/loader';
 import { parseCommand } from './parser/command-parser';
+import { AnthropicLLMService } from './services/llm';
+import type { AgentConfig } from './types/config';
 
 const program = new Command();
 
@@ -74,7 +76,7 @@ function showHelp() {
   console.log('  > 프로젝트 초기화해줘\n');
 }
 
-async function handleUserInput(input: string, config: any) {
+async function handleUserInput(input: string, config: AgentConfig | undefined) {
   // 명령 파싱
   const intent = parseCommand(input);
 
@@ -88,8 +90,11 @@ async function handleUserInput(input: string, config: any) {
       break;
 
     case 'generate_test':
-      console.log('💡 테스트 생성 기능은 곧 구현될 예정입니다.');
-      console.log('   다음 단계에서 LLM을 통합하여 실제로 테스트를 생성할 수 있습니다.\n');
+      if (!config) {
+        console.log('❌ 설정 파일이 필요합니다. 먼저 "프로젝트 초기화해줘"를 실행하세요.\n');
+        break;
+      }
+      await handleGenerateTest(intent.description, config);
       break;
 
     case 'help':
@@ -100,6 +105,26 @@ async function handleUserInput(input: string, config: any) {
       console.log('💡 아직 이 명령을 처리할 수 없습니다.');
       console.log('   /help를 입력하여 사용 가능한 명령을 확인하세요.\n');
       break;
+  }
+}
+
+async function handleGenerateTest(description: string, config: AgentConfig) {
+  try {
+    console.log('🤖 LLM으로 시나리오 분석 중...\n');
+
+    // LLM 서비스 초기화
+    const llm = new AnthropicLLMService(config.anthropicApiKey);
+
+    // 시나리오 분석
+    const analysis = await llm.analyzeScenario(description);
+
+    console.log('✅ 분석 완료!');
+    console.log(`📄 필요한 페이지: ${analysis.pages.join(', ')}\n`);
+
+    console.log('💡 다음 단계에서 실제 페이지 객체와 테스트 파일을 생성할 예정입니다.\n');
+  } catch (error) {
+    console.error('❌ 에러 발생:', error instanceof Error ? error.message : error);
+    console.log('');
   }
 }
 
