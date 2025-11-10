@@ -6,6 +6,7 @@ import type { PageObjectSpec, ElementSpec } from '../types/scenario';
 import { ElementType } from '../types/scenario';
 import type { PageObjectSkeletonCode } from '../types/skeleton';
 import type { SelectorMatch } from '../types/mcp';
+import type { PageFillResult } from '../services/flow-executor';
 
 /**
  * 시나리오 문서로부터 테스트 코드 생성
@@ -99,6 +100,7 @@ export async function generateFromScenario(scenarioPath: string): Promise<void> 
   if (shouldAutoImplementMethods()) {
     console.log('🛠️  MCP 선택자로 메서드 구현 생성 중...\n');
     skeletons.pageObjects = await fillMethodsWithLLM(document, skeletons.pageObjects, llm);
+    skeletons.pageObjects = await handleMethodFailures(skeletons.pageObjects);
   } else {
     console.log('⚙️ 메서드 자동 구현이 비활성화되었습니다 (MCP_AUTO_METHODS=false)\n');
   }
@@ -210,6 +212,10 @@ async function fillSelectorsWithMCP(
       const pageSpecs = buildPageSpecsFromSkeletons(document, pageObjects);
 
       const result = await flowExecutor.execute(pageSpecs);
+
+      if (result.hasFailures) {
+        await promptForMissingSelectors(result.pages);
+      }
 
       result.pages.forEach((page) => {
         if (page.success) {
@@ -341,6 +347,48 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+async function promptForMissingSelectors(pages: PageFillResult[]): Promise<void> {
+  const unresolved = pages.flatMap((page) =>
+    (page.selectors || [])
+      .filter((match) => !match.selector)
+      .map((match) => ({ pageName: page.pageName, match }))
+  );
+
+  if (unresolved.length === 0) {
+    return;
+  }
+
+  const inquirerModule = await import('inquirer');
+  const inquirer = (inquirerModule as any).default ?? inquirerModule;
+
+  for (const { pageName, match } of unresolved) {
+    const { action } = await inquirer.prompt({
+      type: 'list',
+      name: 'action',
+      message: `${pageName}.${match.elementName} 선택자를 찾지 못했습니다. 어떻게 할까요?`,
+      choices: [
+        { name: '수동으로 selector 입력', value: 'manual' },
+        { name: '이번에는 건너뛰기', value: 'skip' },
+      ],
+    });
+
+    if (action === 'manual') {
+      const { manualSelector } = await inquirer.prompt({
+        type: 'input',
+        name: 'manualSelector',
+        message: 'Playwright locator 표현식을 입력하세요 (예: this.page.getByTestId("email"))',
+        validate: (value: string) => (value && value.trim().length > 0 ? true : '값을 입력해주세요.'),
+      });
+
+      match.selector = manualSelector.trim();
+      match.reason = '사용자 입력';
+      console.log(`      → ${pageName}.${match.elementName}에 수동 selector 적용: ${match.selector}`);
+    } else {
+      console.log(`      → ${pageName}.${match.elementName}는 TODO로 유지됩니다.`);
+    }
+  }
+}
+
 function shouldAutoImplementMethods(): boolean {
   return process.env.MCP_AUTO_METHODS !== 'false';
 }
@@ -406,4 +454,90 @@ function buildPageScenarioContext(
           .join('\n')}`
     )
     .join('\n\n');
+}
+
+async function handleMethodFailures(
+  pageObjects: PageObjectSkeletonCode[]
+): Promise<PageObjectSkeletonCode[]> {
+  const pending = pageObjects.filter((po) => po.code.includes('// TODO: MCP로 검증'));
+  if (pending.length === 0) {
+    return pageObjects;
+  }
+
+  const inquirerModule = await import('inquirer');
+  const inquirer = (inquirerModule as any).default ?? inquirerModule;
+  const updated = [...pageObjects];
+
+  for (const page of pending) {
+    let code = page.code;
+    const todos = findTodoEntries(code);
+
+    for (const todo of todos) {
+      const { action } = await inquirer.prompt({
+        type: 'list',
+        name: 'action',
+        message: `${page.pageName}.${todo.methodName} 메서드가 아직 TODO 상태입니다.`,
+        choices: [
+          { name: '수동으로 코드 입력', value: 'manual' },
+          { name: '나중에 직접 수정', value: 'skip' },
+        ],
+      });
+
+      if (action === 'manual') {
+        const { snippet } = await inquirer.prompt({
+          type: 'editor',
+          name: 'snippet',
+          message:
+            `${page.pageName}.${todo.methodName}에 삽입할 코드를 입력하세요 (async/await 포함).`,
+        });
+
+        if (snippet && snippet.trim().length > 0) {
+          code = insertManualSnippet(code, todo.lineIndex, snippet);
+          console.log(`      → ${page.pageName}.${todo.methodName} 수동 코드 적용`);
+        }
+      } else {
+        console.log(`      → ${page.pageName}.${todo.methodName}는 TODO로 유지됩니다.`);
+      }
+    }
+
+    const pageIndex = updated.findIndex((po) => po.pageName === page.pageName);
+    if (pageIndex >= 0) {
+      updated[pageIndex] = { ...updated[pageIndex], code };
+    }
+  }
+
+  return updated;
+}
+
+function findTodoEntries(code: string): { lineIndex: number; methodName: string }[] {
+  const lines = code.split('\n');
+  const entries: { lineIndex: number; methodName: string }[] = [];
+
+  lines.forEach((line, index) => {
+    if (line.includes('// TODO: MCP로 검증')) {
+      let methodName = 'method';
+      for (let i = index; i >= 0; i--) {
+        const methodMatch = lines[i].match(/async\s+([a-zA-Z0-9_]+)/);
+        if (methodMatch) {
+          methodName = methodMatch[1];
+          break;
+        }
+      }
+      entries.push({ lineIndex: index, methodName });
+    }
+  });
+
+  return entries;
+}
+
+function insertManualSnippet(code: string, lineIndex: number, snippet: string): string {
+  const lines = code.split('\n');
+  const indentMatch = lines[lineIndex]?.match(/^\s*/);
+  const indent = indentMatch ? indentMatch[0] : '';
+  const cleanedSnippet = snippet
+    .split('\n')
+    .map((line) => (line.trim().length ? `${indent}${line.replace(/^\s+/, '')}` : ''));
+
+  lines.splice(lineIndex, 1, ...cleanedSnippet);
+  return lines.join('\n');
 }
