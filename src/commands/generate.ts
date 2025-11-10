@@ -4,6 +4,7 @@ import { ScenarioParser } from '../services/scenario-parser';
 import type { AgentConfig } from '../types/config';
 import type { PageObjectSpec, ElementSpec } from '../types/scenario';
 import { ElementType } from '../types/scenario';
+import type { PageObjectSkeletonCode } from '../types/skeleton';
 import type { SelectorMatch } from '../types/mcp';
 
 /**
@@ -94,14 +95,22 @@ export async function generateFromScenario(scenarioPath: string): Promise<void> 
     console.log('⚙️ MCP 자동 채우기가 비활성화되었습니다 (MCP_AUTO_FILL=false)\n');
   }
 
-  // 7. 생성된 코드 미리보기
+  // 8. MCP 기반 메서드 자동 구현
+  if (shouldAutoImplementMethods()) {
+    console.log('🛠️  MCP 선택자로 메서드 구현 생성 중...\n');
+    skeletons.pageObjects = await fillMethodsWithLLM(document, skeletons.pageObjects, llm);
+  } else {
+    console.log('⚙️ 메서드 자동 구현이 비활성화되었습니다 (MCP_AUTO_METHODS=false)\n');
+  }
+
+  // 9. 생성된 코드 미리보기
   console.log('📄 생성된 Page Objects:');
   skeletons.pageObjects.forEach((po) => {
     console.log(`   - ${po.pageName}.ts`);
   });
   console.log(`\n📄 생성된 테스트 파일: ${skeletons.testFile.testName}.spec.ts\n`);
 
-  // 8. 파일 저장
+  // 10. 파일 저장
   console.log('💾 파일 저장 중...\n');
   
   const fs = await import('fs/promises');
@@ -182,7 +191,7 @@ function shouldAutoFillSelectors(): boolean {
 
 async function fillSelectorsWithMCP(
   document: ReturnType<ScenarioParser['parse']>,
-  pageObjects: { pageName: string; code: string }[],
+  pageObjects: PageObjectSkeletonCode[],
   config: AgentConfig
 ) {
   try {
@@ -222,6 +231,7 @@ async function fillSelectorsWithMCP(
         return {
           ...po,
           code: applySelectorMatches(po.code, matches),
+          selectors: matches,
         };
       });
     } finally {
@@ -235,7 +245,7 @@ async function fillSelectorsWithMCP(
 
 function buildPageSpecsFromSkeletons(
   document: ReturnType<ScenarioParser['parse']>,
-  pageObjects: { pageName: string; code: string }[]
+  pageObjects: PageObjectSkeletonCode[]
 ): PageObjectSpec[] {
   return document.pages.map((page) => {
     const skeleton = pageObjects.find((po) => po.pageName === page.name);
@@ -329,4 +339,71 @@ function applySelectorMatches(code: string, matches: SelectorMatch[]): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function shouldAutoImplementMethods(): boolean {
+  return process.env.MCP_AUTO_METHODS !== 'false';
+}
+
+async function fillMethodsWithLLM(
+  document: ReturnType<ScenarioParser['parse']>,
+  pageObjects: PageObjectSkeletonCode[],
+  llm: import('../services/llm.js').AnthropicLLMService
+): Promise<PageObjectSkeletonCode[]> {
+  const { MethodSynthesizer } = await import('../services/method-synthesizer.js');
+  const synthesizer = new MethodSynthesizer(llm);
+  const results: PageObjectSkeletonCode[] = [];
+
+  for (const po of pageObjects) {
+    if (!po.code.includes('// TODO: MCP로 검증')) {
+      results.push(po);
+      continue;
+    }
+
+    try {
+      const scenarioContext = buildPageScenarioContext(document, po.pageName);
+      const updatedCode = await synthesizer.synthesize({
+        pageName: po.pageName,
+        code: po.code,
+        selectors: po.selectors || [],
+        scenarioContext,
+      });
+      console.log(`   ✓ ${po.pageName}: 메서드 구현 완료`);
+      results.push({ ...po, code: updatedCode });
+    } catch (error) {
+      console.warn(
+        `   ⚠️ ${po.pageName}: 메서드 구현 실패 -`,
+        error instanceof Error ? error.message : error
+      );
+      results.push(po);
+    }
+  }
+
+  return results;
+}
+
+function buildPageScenarioContext(
+  document: ReturnType<ScenarioParser['parse']>,
+  pageName: string
+): string {
+  const flows = document.flows
+    .filter((flow) =>
+      flow.steps.some(
+        (step) => (step.page && step.page === pageName) || step.raw.includes(pageName)
+      )
+    )
+    .slice(0, 3);
+
+  if (flows.length === 0) {
+    return '';
+  }
+
+  return flows
+    .map(
+      (flow) =>
+        `${flow.name}\n${flow.steps
+          .map((step) => `- ${step.order}. ${step.raw}`)
+          .join('\n')}`
+    )
+    .join('\n\n');
 }

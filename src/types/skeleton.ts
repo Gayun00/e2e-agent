@@ -1,3 +1,5 @@
+import type { SelectorMatch } from './mcp';
+
 /**
  * Page Object와 Test File의 Skeleton 타입 정의
  * Phase 2에서 LLM이 생성하는 코드 구조
@@ -23,6 +25,7 @@ export interface PageInfo {
 export interface PageObjectSkeletonCode {
   pageName: string;
   code: string;  // TypeScript 코드 (PLACEHOLDER 포함)
+  selectors?: SelectorMatch[]; // MCP로 채워진 선택자 (Phase 3)
 }
 
 /**
