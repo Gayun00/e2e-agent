@@ -8,12 +8,13 @@ async function checkMCPTools() {
   console.log('🔍 Playwright MCP 서버 도구 확인\n');
 
   const mcpClient = new MCPClient();
+  const serverConfig = resolveServerConfig();
 
   try {
     // MCP 서버 연결
     const session = await mcpClient.connect({
-      command: 'npx',
-      args: ['-y', '@playwright/mcp-server'],
+      command: serverConfig.command,
+      args: serverConfig.args,
       env: process.env as Record<string, string>,
     });
 
@@ -43,3 +44,31 @@ async function checkMCPTools() {
 }
 
 checkMCPTools();
+
+function resolveServerConfig() {
+  const command = process.env.MCP_SERVER_COMMAND?.trim() || 'npx';
+  const args =
+    parseArgs(process.env.MCP_SERVER_ARGS) || ['-y', '@playwright/mcp-server'];
+
+  return { command, args };
+}
+
+function parseArgs(raw?: string): string[] | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map((arg) => String(arg));
+      }
+    } catch (error) {
+      console.warn('⚠️  MCP_SERVER_ARGS JSON 파싱 실패, 기본 인자를 사용합니다.', error);
+      return null;
+    }
+  }
+
+  return trimmed.split(/\s+/);
+}

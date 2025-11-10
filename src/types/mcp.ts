@@ -66,3 +66,44 @@ export enum SelectorStrategy {
   TEXT = 'text',
   CSS = 'css',
 }
+
+/**
+ * MCP snapshot에서 추출한 요소 정보
+ */
+export interface SnapshotElement {
+  role: string;
+  name?: string;
+  ref: string;
+  raw: string;
+}
+
+/**
+ * MCP evaluate로 얻은 요소 메타데이터
+ */
+export interface ElementMetadata {
+  tag?: string;
+  type?: string;
+  id?: string;
+  name?: string;
+  placeholder?: string;
+  dataTest?: string;
+  text?: string;
+  label?: string;
+  ariaLabel?: string;
+  className?: string;
+  role?: string;
+}
+
+/**
+ * 선택자 매칭 결과
+ */
+export interface SelectorMatch {
+  elementName: string;
+  selector: string | null;
+  strategy: SelectorStrategy | null;
+  confidence: number;
+  ref?: string;
+  snapshot?: SnapshotElement;
+  metadata?: ElementMetadata | null;
+  reason?: string;
+}

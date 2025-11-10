@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { PlaywrightMCPService } from './playwright-mcp';
 
 describe('PlaywrightMCPService', () => {
@@ -21,13 +21,11 @@ describe('PlaywrightMCPService', () => {
     expect(typeof mcpService.startSession).toBe('function');
     expect(typeof mcpService.navigate).toBe('function');
     expect(typeof mcpService.click).toBe('function');
-    expect(typeof mcpService.fill).toBe('function');
-    expect(typeof mcpService.getText).toBe('function');
-    expect(typeof mcpService.getAttribute).toBe('function');
-    expect(typeof mcpService.screenshot).toBe('function');
-    expect(typeof mcpService.evaluate).toBe('function');
-    expect(typeof mcpService.verifySelector).toBe('function');
-    expect(typeof mcpService.findElements).toBe('function');
+    expect(typeof mcpService.type).toBe('function');
+    expect(typeof mcpService.snapshot).toBe('function');
+    expect(typeof mcpService.takeScreenshot).toBe('function');
+    expect(typeof mcpService.evaluatePage).toBe('function');
+    expect(typeof mcpService.evaluateElement).toBe('function');
     expect(typeof mcpService.close).toBe('function');
   });
 
