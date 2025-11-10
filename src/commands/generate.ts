@@ -2,6 +2,9 @@ import { existsSync } from 'fs';
 import { loadConfig } from '../config/loader';
 import { ScenarioParser } from '../services/scenario-parser';
 import type { AgentConfig } from '../types/config';
+import type { PageObjectSpec, ElementSpec } from '../types/scenario';
+import { ElementType } from '../types/scenario';
+import type { SelectorMatch } from '../types/mcp';
 
 /**
  * 시나리오 문서로부터 테스트 코드 생성
@@ -81,6 +84,14 @@ export async function generateFromScenario(scenarioPath: string): Promise<void> 
   } catch (error) {
     console.error('❌ Skeleton 생성 실패:', error);
     process.exit(1);
+  }
+
+  // 7. MCP 자동 채우기 (선택자)
+  if (shouldAutoFillSelectors()) {
+    console.log('🧠 MCP로 선택자 채우기 시도 중...\n');
+    skeletons.pageObjects = await fillSelectorsWithMCP(document, skeletons.pageObjects, config);
+  } else {
+    console.log('⚙️ MCP 자동 채우기가 비활성화되었습니다 (MCP_AUTO_FILL=false)\n');
   }
 
   // 7. 생성된 코드 미리보기
@@ -163,4 +174,159 @@ export abstract class BasePage {
   console.log(`   - Page Objects: ${skeletons.pageObjects.length}개`);
   console.log(`   - 테스트 파일: 1개\n`);
   console.log('💡 다음 단계: Phase 3 - MCP로 PLACEHOLDER 선택자 찾기\n');
+}
+
+function shouldAutoFillSelectors(): boolean {
+  return process.env.MCP_AUTO_FILL !== 'false';
+}
+
+async function fillSelectorsWithMCP(
+  document: ReturnType<ScenarioParser['parse']>,
+  pageObjects: { pageName: string; code: string }[],
+  config: AgentConfig
+) {
+  try {
+    const [{ PlaywrightMCPService }, { SelectorFiller }] = await Promise.all([
+      import('../services/playwright-mcp.js'),
+      import('../services/selector-filler.js'),
+    ]);
+    const { FlowExecutor } = await import('../services/flow-executor.js');
+
+    const mcpService = new PlaywrightMCPService(config.baseUrl);
+    await mcpService.startSession();
+
+    try {
+      const selectorFiller = new SelectorFiller(mcpService);
+      const flowExecutor = new FlowExecutor(selectorFiller);
+      const pageSpecs = buildPageSpecsFromSkeletons(document, pageObjects);
+
+      const result = await flowExecutor.execute(pageSpecs);
+
+      result.pages.forEach((page) => {
+        if (page.success) {
+          console.log(`   ✓ ${page.pageName}: ${page.selectors.length}개 요소 채움`);
+        } else {
+          console.log(`   ⚠️ ${page.pageName}: ${page.missingElements.length}개 요소 미채움`);
+        }
+      });
+
+      if (result.hasFailures) {
+        console.log('\n⚠️ 일부 요소는 PLACEHOLDER로 남아 있습니다. 나중에 수동으로 채워주세요.\n');
+      } else {
+        console.log('\n✓ MCP 자동 채우기 완료!\n');
+      }
+
+      return pageObjects.map((po) => {
+        const matches =
+          result.pages.find((page) => page.pageName === po.pageName)?.selectors || [];
+        return {
+          ...po,
+          code: applySelectorMatches(po.code, matches),
+        };
+      });
+    } finally {
+      await mcpService.close();
+    }
+  } catch (error) {
+    console.warn('⚠️ MCP 자동 채우기 실패. PLACEHOLDER를 그대로 유지합니다.', error);
+    return pageObjects;
+  }
+}
+
+function buildPageSpecsFromSkeletons(
+  document: ReturnType<ScenarioParser['parse']>,
+  pageObjects: { pageName: string; code: string }[]
+): PageObjectSpec[] {
+  return document.pages.map((page) => {
+    const skeleton = pageObjects.find((po) => po.pageName === page.name);
+    const requiredElements = skeleton ? extractElementsFromSkeleton(skeleton.code) : [];
+    return {
+      name: page.name,
+      path: page.path,
+      description: page.description,
+      requiredElements,
+      requiredMethods: [],
+    };
+  });
+}
+
+function extractElementsFromSkeleton(code: string): ElementSpec[] {
+  const matches: ElementSpec[] = [];
+  const getterRegex =
+    /get\s+([a-zA-Z0-9_]+)\s*\(\)\s*:\s*Locator\s*\{[\s\S]*?return\s+this\.page\.locator\('PLACEHOLDER_([^']+)'\);[\s\S]*?\}/g;
+
+  let match;
+  while ((match = getterRegex.exec(code)) !== null) {
+    const propertyName = match[1];
+    const placeholderName = match[2];
+    const name = placeholderName || propertyName;
+
+    matches.push({
+      name,
+      purpose: humanizeElementName(propertyName),
+      type: inferElementType(propertyName),
+      usedInSteps: [],
+    });
+  }
+
+  return matches;
+}
+
+function inferElementType(propertyName: string): ElementType {
+  const lower = propertyName.toLowerCase();
+  if (lower.includes('button') || lower.includes('submit')) {
+    return ElementType.BUTTON;
+  }
+  if (
+    lower.includes('input') ||
+    lower.includes('field') ||
+    lower.includes('email') ||
+    lower.includes('password') ||
+    lower.includes('username')
+  ) {
+    return ElementType.INPUT;
+  }
+  if (lower.includes('link')) {
+    return ElementType.LINK;
+  }
+  if (lower.includes('select') || lower.includes('dropdown')) {
+    return ElementType.SELECT;
+  }
+  if (lower.includes('checkbox')) {
+    return ElementType.CHECKBOX;
+  }
+  if (lower.includes('radio')) {
+    return ElementType.RADIO;
+  }
+  return ElementType.TEXT;
+}
+
+function humanizeElementName(name: string): string {
+  return name
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]/g, ' ')
+    .trim();
+}
+
+function applySelectorMatches(code: string, matches: SelectorMatch[]): string {
+  let updated = code;
+
+  matches.forEach((match) => {
+    if (!match.selector) {
+      return;
+    }
+
+    const placeholder = `PLACEHOLDER_${match.elementName}`;
+    const regex = new RegExp(
+      `return\\s+this\\.page\\.locator\\('${escapeRegExp(placeholder)}'\\);`,
+      'g'
+    );
+    updated = updated.replace(regex, `return ${match.selector};`);
+  });
+
+  return updated;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
