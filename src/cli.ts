@@ -49,6 +49,21 @@ program
   });
 
 program
+  .command('crew <action>')
+  .description('CrewAI 에이전트 런타임 명령어 (Phase 3)')
+  .option('-s, --scenario <path>', '시나리오 파일 경로')
+  .option('-m, --method <name>', '대상 메서드 이름 (미래 작업용 옵션)')
+  .action(async (action, options) => {
+    const { runCrewCommand } = await import('./commands/crew.js');
+    try {
+      await runCrewCommand(action, options);
+    } catch (error) {
+      console.error('❌ Crew 명령 실행 실패:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+program
   .action(async () => {
     await startInteractiveMode();
   });

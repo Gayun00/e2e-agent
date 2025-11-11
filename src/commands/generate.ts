@@ -403,28 +403,55 @@ async function fillMethodsWithLLM(
   const results: PageObjectSkeletonCode[] = [];
 
   for (const po of pageObjects) {
-    if (!po.code.includes('// TODO: MCP로 검증')) {
+    let currentCode = po.code;
+    const scenarioContext = buildPageScenarioContext(document, po.pageName);
+    const todoEntries = findTodoEntries(currentCode);
+
+    if (todoEntries.length === 0) {
       results.push(po);
       continue;
     }
 
-    try {
-      const scenarioContext = buildPageScenarioContext(document, po.pageName);
-      const updatedCode = await synthesizer.synthesize({
-        pageName: po.pageName,
-        code: po.code,
-        selectors: po.selectors || [],
-        scenarioContext,
-      });
-      console.log(`   ✓ ${po.pageName}: 메서드 구현 완료`);
-      results.push({ ...po, code: updatedCode });
-    } catch (error) {
-      console.warn(
-        `   ⚠️ ${po.pageName}: 메서드 구현 실패 -`,
-        error instanceof Error ? error.message : error
-      );
-      results.push(po);
+    console.log(`   ▶ ${po.pageName}: ${todoEntries.length}개 메서드 처리`);
+
+    for (const entry of todoEntries) {
+      try {
+        const updatedCode = await synthesizer.synthesize({
+          pageName: po.pageName,
+          code: currentCode,
+          selectors: po.selectors || [],
+          scenarioContext,
+          targetMethod: entry,
+        });
+
+        const approved = await promptMethodApproval(
+          po.pageName,
+          entry.name,
+          entry.snippet,
+          extractMethodSnippet(updatedCode, entry.name)
+        );
+
+        if (approved.accepted) {
+          currentCode = approved.code ?? updatedCode;
+          continue;
+        }
+
+        if (approved.manualSnippet) {
+          currentCode = insertManualSnippet(currentCode, entry, approved.manualSnippet);
+          console.log(`      → ${po.pageName}.${entry.name} 수동 코드 적용`);
+        } else {
+          console.log(`      → ${po.pageName}.${entry.name}는 TODO로 유지됩니다.`);
+          // leave currentCode as-is
+        }
+      } catch (error) {
+        console.warn(
+          `   ⚠️ ${po.pageName}.${entry.name} 메서드 구현 실패 -`,
+          error instanceof Error ? error.message : error
+        );
+      }
     }
+
+    results.push({ ...po, code: currentCode });
   }
 
   return results;
@@ -476,7 +503,7 @@ async function handleMethodFailures(
       const { action } = await inquirer.prompt({
         type: 'list',
         name: 'action',
-        message: `${page.pageName}.${todo.methodName} 메서드가 아직 TODO 상태입니다.`,
+        message: `${page.pageName}.${todo.name} 메서드가 아직 TODO 상태입니다.`,
         choices: [
           { name: '수동으로 코드 입력', value: 'manual' },
           { name: '나중에 직접 수정', value: 'skip' },
@@ -488,15 +515,15 @@ async function handleMethodFailures(
           type: 'editor',
           name: 'snippet',
           message:
-            `${page.pageName}.${todo.methodName}에 삽입할 코드를 입력하세요 (async/await 포함).`,
+            `${page.pageName}.${todo.name}에 삽입할 코드를 입력하세요 (async/await 포함).`,
         });
 
         if (snippet && snippet.trim().length > 0) {
-          code = insertManualSnippet(code, todo.lineIndex, snippet);
-          console.log(`      → ${page.pageName}.${todo.methodName} 수동 코드 적용`);
+          code = insertManualSnippet(code, todo, snippet);
+          console.log(`      → ${page.pageName}.${todo.name} 수동 코드 적용`);
         }
       } else {
-        console.log(`      → ${page.pageName}.${todo.methodName}는 TODO로 유지됩니다.`);
+        console.log(`      → ${page.pageName}.${todo.name}는 TODO로 유지됩니다.`);
       }
     }
 
@@ -509,35 +536,136 @@ async function handleMethodFailures(
   return updated;
 }
 
-function findTodoEntries(code: string): { lineIndex: number; methodName: string }[] {
+type TodoEntry = {
+  name: string;
+  snippet: string;
+  startLine: number;
+  endLine: number;
+};
+
+function findTodoEntries(code: string): TodoEntry[] {
   const lines = code.split('\n');
-  const entries: { lineIndex: number; methodName: string }[] = [];
+  const entries: TodoEntry[] = [];
 
   lines.forEach((line, index) => {
-    if (line.includes('// TODO: MCP로 검증')) {
-      let methodName = 'method';
-      for (let i = index; i >= 0; i--) {
-        const methodMatch = lines[i].match(/async\s+([a-zA-Z0-9_]+)/);
-        if (methodMatch) {
-          methodName = methodMatch[1];
-          break;
-        }
-      }
-      entries.push({ lineIndex: index, methodName });
+    if (!line.includes('// TODO: MCP로 검증')) {
+      return;
     }
+
+    const signature = findMethodSignature(lines, index);
+    if (!signature) {
+      return;
+    }
+
+    const { name, lineIndex } = signature;
+    const endLine = findMethodEndLine(lines, lineIndex);
+    const snippet = lines.slice(lineIndex, endLine + 1).join('\n');
+
+    entries.push({
+      name,
+      snippet,
+      startLine: lineIndex,
+      endLine,
+    });
   });
 
   return entries;
 }
 
-function insertManualSnippet(code: string, lineIndex: number, snippet: string): string {
+function findMethodSignature(lines: string[], startIndex: number): { name: string; lineIndex: number } | null {
+  for (let i = startIndex; i >= 0; i--) {
+    const methodMatch = lines[i].match(/async\s+([a-zA-Z0-9_]+)/);
+    if (methodMatch) {
+      return { name: methodMatch[1], lineIndex: i };
+    }
+  }
+  return null;
+}
+
+function findMethodEndLine(lines: string[], startLine: number): number {
+  let depth = 0;
+  let started = false;
+
+  for (let i = startLine; i < lines.length; i++) {
+    const line = lines[i];
+    for (const char of line) {
+      if (char === '{') {
+        depth++;
+        started = true;
+      } else if (char === '}') {
+        depth--;
+        if (started && depth === 0) {
+          return i;
+        }
+      }
+    }
+  }
+
+  return lines.length - 1;
+}
+
+function extractMethodSnippet(code: string, methodName: string): string {
   const lines = code.split('\n');
-  const indentMatch = lines[lineIndex]?.match(/^\s*/);
+  const signatureIndex = lines.findIndex((line) => line.includes(`async ${methodName}`));
+  if (signatureIndex === -1) {
+    return '';
+  }
+  const endLine = findMethodEndLine(lines, signatureIndex);
+  return lines.slice(signatureIndex, endLine + 1).join('\n');
+}
+
+async function promptMethodApproval(
+  pageName: string,
+  methodName: string,
+  oldSnippet: string,
+  newSnippet: string
+): Promise<{ accepted: boolean; code?: string; manualSnippet?: string }> {
+  const inquirerModule = await import('inquirer');
+  const inquirer = (inquirerModule as any).default ?? inquirerModule;
+
+  console.log(`\n${pageName}.${methodName} 제안된 구현:\n`);
+  console.log(newSnippet || '(생성 실패)');
+
+  const { action } = await inquirer.prompt({
+    type: 'list',
+    name: 'action',
+    message: `${pageName}.${methodName} 구현을 어떻게 처리할까요?`,
+    choices: [
+      { name: '승인 (생성된 코드 사용)', value: 'accept' },
+      { name: '수동으로 코드 작성', value: 'manual' },
+      { name: '나중에 직접 수정', value: 'skip' },
+    ],
+  });
+
+  if (action === 'accept') {
+    return { accepted: true, code: undefined };
+  }
+
+  if (action === 'manual') {
+    const { snippet } = await inquirer.prompt({
+      type: 'editor',
+      name: 'snippet',
+      message: `${pageName}.${methodName}에 삽입할 코드를 입력하세요.`,
+      default: oldSnippet,
+    });
+
+    return {
+      accepted: false,
+      manualSnippet: snippet,
+    };
+  }
+
+  return { accepted: false };
+}
+
+function insertManualSnippet(code: string, entry: TodoEntry, snippet: string): string {
+  const lines = code.split('\n');
+  const indentMatch = lines[entry.startLine]?.match(/^\s*/);
   const indent = indentMatch ? indentMatch[0] : '';
   const cleanedSnippet = snippet
     .split('\n')
     .map((line) => (line.trim().length ? `${indent}${line.replace(/^\s+/, '')}` : ''));
 
-  lines.splice(lineIndex, 1, ...cleanedSnippet);
+  lines.splice(entry.startLine, entry.endLine - entry.startLine + 1, ...cleanedSnippet);
   return lines.join('\n');
 }

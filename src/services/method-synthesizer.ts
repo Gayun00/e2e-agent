@@ -6,6 +6,10 @@ export interface MethodSynthesisInput {
   code: string;
   selectors: SelectorMatch[];
   scenarioContext?: string;
+  targetMethod?: {
+    name: string;
+    snippet: string;
+  };
 }
 
 /**
@@ -20,6 +24,17 @@ export class MethodSynthesizer {
       ? `\n테스트 상황:\n${input.scenarioContext.trim()}\n`
       : '';
 
+    const methodInstruction = input.targetMethod
+      ? `대상 메서드: ${input.targetMethod.name}
+현재 구현:
+\`\`\`typescript
+${input.targetMethod.snippet}
+\`\`\`
+
+이 메서드만 수정하세요. 다른 메서드나 import, getter는 변경하지 마세요.
+`
+      : '';
+
     const prompt = `당신은 Playwright Page Object Model 전문가입니다.
 아래 ${input.pageName} 클래스의 TODO 메서드를 실제 Playwright 코드로 완성해주세요.
 
@@ -30,7 +45,7 @@ export class MethodSynthesizer {
 4. async/await 패턴을 유지하고 예외 처리는 불필요합니다.
 5. import 문, 클래스 선언, getter, goto/isOnPage 등은 변경하지 마세요.
 6. TypeScript 코드만 출력하고 마크다운 코드 블록은 사용하지 마세요.${scenarioSnippet}
-요소 요약:
+${methodInstruction}요소 요약:
 ${selectorSummary}
 
 현재 코드:
