@@ -2,7 +2,15 @@
 
 ## 개요
 
-Playwright E2E 테스트 자동 생성 AI Agent는 사용자가 제공한 **정형화된 테스트 시나리오 문서**를 기반으로 Page Object Model 패턴을 따르는 테스트 코드를 생성합니다. Agent는 Anthropic Claude API를 사용하여 코드 생성을 수행하고, Playwright MCP를 통해 실시간으로 브라우저에서 검증하면서 선택자와 메서드를 완성합니다.
+Playwright E2E 테스트 자동 생성 AI Agent는 사용자가 제공한 **정형화된 테스트 시나리오 문서**를 기반으로 Page Object Model 패턴을 따르는 테스트 코드를 생성합니다. 에이전트는 CrewAI를 통해 orchestration 되며, Anthropic Claude API를 활용해 추론/코드 생성을 수행하고, Playwright MCP 도구를 직접 호출하여 실시간으로 브라우저를 제어하면서 선택자와 메서드를 완성합니다. CLI는 이제 최소한의 인터페이스만 담당하고, 에이전트-사용자-브라우저 사이의 상호작용은 CrewAI 런타임에서 진행됩니다.
+
+### 에이전트 기반 실행 모델
+
+- **CrewAI Orchestrator**: 역할/작업을 정의하고, Anthropic LLM이 스스로 다음 행동(예: MCP navigate, selector 검사, 사용자 피드백 요청)을 결정하도록 한다.
+- **Tool Binding**: `browser_navigate`, `browser_snapshot`, `browser_click` 등 Playwright MCP 도구를 CrewAI tool로 등록하여 LLM이 직접 호출한다.
+- **대화형 승인 루프**: 각 메서드/요소별로 "탐색 → 요약 → 사용자 승인" 루프를 유지한다. 실패 시 에이전트가 바로 사용자에게 보고하고 다음 시도/수동 입력을 요청한다.
+
+이 구조를 통해 “에이전트가 MCP를 직접 다루고, 개발자가 단계별로 확인하면서 함께 메서드를 채운다”는 목표를 구현한다.
 
 ### 핵심 워크플로우
 
@@ -25,8 +33,8 @@ Playwright E2E 테스트 자동 생성 AI Agent는 사용자가 제공한 **정�
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                      Agent Orchestrator                      │
-│              (워크플로우 관리 및 단계별 실행)                │
+│                        CrewAI Agent Runner                   │
+│     (Task/Role 정의, Anthropic LLM + Tool Orchestration)     │
 └───────────────────────────┬─────────────────────────────────┘
                             │
         ┌───────────────────┼───────────────────┐
@@ -42,12 +50,12 @@ Playwright E2E 테스트 자동 생성 AI Agent는 사용자가 제공한 **정�
                 │   LLM Service Layer   │
                 │  (Anthropic + Cache)  │
                 └───────────┬───────────┘
-                            │
+                            │  tool call
                 ┌───────────┼───────────┬──────────────┐
                 ▼           ▼           ▼              ▼
         ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐
-        │ Langfuse │ │   MCP    │ │Playwright│ │    File    │
-        │ Tracking │ │  Client  │ │MCP Server│ │   System   │
+        │ Langfuse │ │ CrewAI   │ │Playwright│ │    File    │
+        │ Tracking │ │ MCP Tool │ │MCP Server│ │   System   │
         └──────────┘ └────┬─────┘ └────┬─────┘ └────────────┘
                           │            │
                           └────────────┘
@@ -79,26 +87,26 @@ Agent는 **MCP (Model Context Protocol) Client**를 통해 **Microsoft Playwrigh
 
 ```typescript
 interface CLIOptions {
-  scenario?: string;           // 테스트 시나리오 파일 경로
-  domainDoc?: string;          // 도메인 지식 문서 경로
-  config?: string;             // 설정 파일 경로
-  pagesDir?: string;           // 페이지 객체 디렉토리
-  testsDir?: string;           // 테스트 파일 디렉토리
-  baseUrl?: string;            // 테스트 대상 URL
-  interactive?: boolean;       // 대화형 모드 활성화
+  scenario?: string; // 테스트 시나리오 파일 경로
+  domainDoc?: string; // 도메인 지식 문서 경로
+  config?: string; // 설정 파일 경로
+  pagesDir?: string; // 페이지 객체 디렉토리
+  testsDir?: string; // 테스트 파일 디렉토리
+  baseUrl?: string; // 테스트 대상 URL
+  interactive?: boolean; // 대화형 모드 활성화
 }
 
 interface AgentConfig {
-  pagesDirectory: string;      // 기본값: 'tests/pages'
-  testsDirectory: string;      // 기본값: 'tests'
-  mocksDirectory: string;      // 기본값: 'tests/mocks'
+  pagesDirectory: string; // 기본값: 'tests/pages'
+  testsDirectory: string; // 기본값: 'tests'
+  mocksDirectory: string; // 기본값: 'tests/mocks'
   baseUrl: string;
   anthropicApiKey: string;
   auth?: {
     enabled: boolean;
-    emailEnvVar: string;       // 예: 'TEST_USER_EMAIL'
-    passwordEnvVar: string;    // 예: 'TEST_USER_PASSWORD'
-    loginPath: string;         // 예: '/login'
+    emailEnvVar: string; // 예: 'TEST_USER_EMAIL'
+    passwordEnvVar: string; // 예: 'TEST_USER_PASSWORD'
+    loginPath: string; // 예: '/login'
   };
   langfuseConfig?: {
     publicKey: string;
@@ -109,6 +117,7 @@ interface AgentConfig {
 ```
 
 **주요 기능**:
+
 - 명령어 파싱 및 옵션 처리
 - 설정 파일 로드 (`.e2e-agent.config.json`)
 - 대화형 프롬프트 제공
@@ -122,34 +131,34 @@ interface AgentConfig {
 interface TestGenerationWorkflow {
   // 1단계: 테스트 시나리오 문서 로드
   loadScenarioDocument(filePath: string): Promise<ScenarioDocument>;
-  
+
   // 2단계: 시나리오 문서 파싱
   parseScenarioDocument(document: ScenarioDocument): Promise<ParsedScenario>;
-  
+
   // 3단계: POM 껍데기 생성 (메모리)
-  generatePageObjectSkeletons(scenario: ParsedScenario): Promise<PageObjectSkeleton[]>;
-  
+  generatePageObjectSkeletons(
+    scenario: ParsedScenario
+  ): Promise<PageObjectSkeleton[]>;
+
   // 4단계: 테스트 파일 껍데기 생성 (메모리)
   generateTestFileSkeleton(
     scenario: ParsedScenario,
     pageObjects: PageObjectSkeleton[]
   ): Promise<TestFileSkeleton>;
-  
+
   // 5단계: MCP 브라우저 세션 시작
   startMCPSession(): Promise<MCPSession>;
-  
+
   // 6단계: 실시간 검증 및 채워넣기
   fillAndVerifyWithMCP(
     pageObjects: PageObjectSkeleton[],
     testFile: TestFileSkeleton,
     mcpSession: MCPSession
   ): Promise<VerificationResult>;
-  
+
   // 7단계: 실패 처리 및 사용자 검토
-  handleFailures(
-    result: VerificationResult
-  ): Promise<UserReviewResult>;
-  
+  handleFailures(result: VerificationResult): Promise<UserReviewResult>;
+
   // 8단계: 최종 파일 저장
   saveCompletedFiles(
     pageObjects: PageObject[],
@@ -171,15 +180,15 @@ interface WorkflowState {
 }
 
 enum WorkflowStep {
-  LOAD_SCENARIO_DOCUMENT = 'load_scenario_document',
-  PARSE_SCENARIO = 'parse_scenario',
-  GENERATE_POM_SKELETONS = 'generate_pom_skeletons',
-  GENERATE_TEST_SKELETON = 'generate_test_skeleton',
-  START_MCP_SESSION = 'start_mcp_session',
-  FILL_AND_VERIFY = 'fill_and_verify',
-  HANDLE_FAILURES = 'handle_failures',
-  SAVE_FILES = 'save_files',
-  COMPLETE = 'complete'
+  LOAD_SCENARIO_DOCUMENT = "load_scenario_document",
+  PARSE_SCENARIO = "parse_scenario",
+  GENERATE_POM_SKELETONS = "generate_pom_skeletons",
+  GENERATE_TEST_SKELETON = "generate_test_skeleton",
+  START_MCP_SESSION = "start_mcp_session",
+  FILL_AND_VERIFY = "fill_and_verify",
+  HANDLE_FAILURES = "handle_failures",
+  SAVE_FILES = "save_files",
+  COMPLETE = "complete",
 }
 ```
 
@@ -193,16 +202,19 @@ enum WorkflowStep {
 ## 페이지 정의
 
 ### LoginPage
+
 - 경로: `/login`
 - 설명: 사용자 로그인 페이지
 
 ### DashboardPage
+
 - 경로: `/dashboard`
 - 설명: 로그인 후 대시보드
 
 ## 테스트 플로우
 
 ### 성공적인 로그인
+
 1. LoginPage로 이동
 2. 이메일 입력 (test@example.com)
 3. 비밀번호 입력 (password123)
@@ -211,6 +223,7 @@ enum WorkflowStep {
 6. 환영 메시지 확인
 
 ### 실패한 로그인
+
 1. LoginPage로 이동
 2. 잘못된 이메일 입력
 3. 로그인 버튼 클릭
@@ -266,53 +279,56 @@ interface PageObject {
 
 interface ElementDefinition {
   name: string;
-  purpose: string;  // 테스트 플로우에서의 역할 설명
+  purpose: string; // 테스트 플로우에서의 역할 설명
   selector: ElementSelector;
-  type: 'button' | 'input' | 'text' | 'link' | 'select' | 'checkbox' | 'radio';
-  verified: boolean;  // MCP로 검증 완료 여부
+  type: "button" | "input" | "text" | "link" | "select" | "checkbox" | "radio";
+  verified: boolean; // MCP로 검증 완료 여부
 }
 
 interface ElementSelector {
   strategy: SelectorStrategy;
   value: string;
-  placeholder?: boolean;  // Phase 1에서는 임시 선택자
+  placeholder?: boolean; // Phase 1에서는 임시 선택자
   options?: Record<string, any>;
 }
 
 enum SelectorStrategy {
-  TEST_ID = 'testId',      // 최우선
-  ID = 'id',
-  PLACEHOLDER = 'placeholder',
-  ROLE = 'role',
-  LABEL = 'label',
-  TEXT = 'text',
-  CSS = 'css',
-  XPATH = 'xpath'
+  TEST_ID = "testId", // 최우선
+  ID = "id",
+  PLACEHOLDER = "placeholder",
+  ROLE = "role",
+  LABEL = "label",
+  TEXT = "text",
+  CSS = "css",
+  XPATH = "xpath",
 }
 
 class PageObjectGenerator {
   async identifyPages(scenario: ScenarioAnalysis): Promise<string[]>;
-  async inferPath(pageName: string, domainKnowledge?: DomainKnowledge): Promise<string>;
+  async inferPath(
+    pageName: string,
+    domainKnowledge?: DomainKnowledge
+  ): Promise<string>;
   async confirmPath(pageName: string, inferredPath: string): Promise<string>;
-  
+
   // Phase 1: 테스트 플로우 기반 요소 식별
   async identifyRequiredElements(
     scenario: ScenarioAnalysis,
     pageName: string
   ): Promise<RequiredElement[]>;
-  
+
   // Phase 1: 임시 선택자로 페이지 객체 생성
   async generateClassWithPlaceholders(
     pageObject: PageObject,
     requiredElements: RequiredElement[]
   ): Promise<string>;
-  
+
   // Phase 2: MCP로 실제 선택자 찾기 및 업데이트
   async updateSelectorsWithMCP(
     pageObject: PageObject,
     mcpService: PlaywrightMCPService
   ): Promise<PageObject>;
-  
+
   async writeToFile(pageObject: PageObject, code: string): Promise<void>;
 }
 ```
@@ -320,6 +336,7 @@ class PageObjectGenerator {
 **페이지 객체 생성 전략 (메모리 기반 워크플로우)**:
 
 #### 1단계: 시나리오 문서 파싱
+
 - 사용자가 제공한 정형화된 문서에서 정보 추출
 - 페이지 목록, 경로, 테스트 플로우 파싱
 - 각 플로우에서 필요한 요소 식별
@@ -327,24 +344,28 @@ class PageObjectGenerator {
 #### 2단계: LLM 기반 POM Skeleton 코드 생성
 
 **시나리오 문서 예시:**
+
 ```markdown
 # 로그인 테스트
 
 ## 1. 로그인 페이지에서 로그인을 한다
-1) 휴대폰 번호 인풋에 값을 입력하고
-2) 비밀번호 인풋에 입력하고
-3) 로그인 버튼을 누른다
+
+1. 휴대폰 번호 인풋에 값을 입력하고
+2. 비밀번호 인풋에 입력하고
+3. 로그인 버튼을 누른다
 
 ## 2. 로그인 완료 후 메인페이지로 이동했는지 확인한다
-1) 이동한 경로가 '/'인지 확인한다
-2) 페이지에 '메인페이지' 텍스트가 있는지 확인한다
+
+1. 이동한 경로가 '/'인지 확인한다
+2. 페이지에 '메인페이지' 텍스트가 있는지 확인한다
 ```
 
 **LLM 분석 결과:**
+
 - **필요한 페이지**: LoginPage, MainPage
 - **LoginPage 요소**: phoneNumberInput, passwordInput, loginButton
 - **MainPage 요소**: mainPageText
-- **필수 메서드**: 
+- **필수 메서드**:
   - 모든 POM: `goto()`, `isOnPage()`
   - LoginPage: `fillPhoneNumber()`, `fillPassword()`, `clickLoginButton()`
   - MainPage: `isMainPageDisplayed()`
@@ -353,40 +374,40 @@ class PageObjectGenerator {
 
 ```typescript
 // LoginPage.ts
-import { Page, Locator } from '@playwright/test';
-import { BasePage } from './BasePage';
+import { Page, Locator } from "@playwright/test";
+import { BasePage } from "./BasePage";
 
 export class LoginPage extends BasePage {
   readonly phoneNumberInput: Locator;
   readonly passwordInput: Locator;
   readonly loginButton: Locator;
-  
+
   constructor(page: Page) {
     super(page);
     // PLACEHOLDER: MCP로 실제 선택자 찾기
-    this.phoneNumberInput = this.page.locator('PLACEHOLDER_phoneNumberInput');
-    this.passwordInput = this.page.locator('PLACEHOLDER_passwordInput');
-    this.loginButton = this.page.locator('PLACEHOLDER_loginButton');
+    this.phoneNumberInput = this.page.locator("PLACEHOLDER_phoneNumberInput");
+    this.passwordInput = this.page.locator("PLACEHOLDER_passwordInput");
+    this.loginButton = this.page.locator("PLACEHOLDER_loginButton");
   }
-  
+
   async goto() {
-    await this.page.goto('/login');
+    await this.page.goto("/login");
   }
-  
+
   async isOnPage(): Promise<boolean> {
-    return this.page.url().includes('/login');
+    return this.page.url().includes("/login");
   }
-  
+
   async fillPhoneNumber(phoneNumber: string) {
     // TODO: MCP로 구현
     await this.phoneNumberInput.fill(phoneNumber);
   }
-  
+
   async fillPassword(password: string) {
     // TODO: MCP로 구현
     await this.passwordInput.fill(password);
   }
-  
+
   async clickLoginButton() {
     // TODO: MCP로 구현
     await this.loginButton.click();
@@ -396,20 +417,20 @@ export class LoginPage extends BasePage {
 // MainPage.ts
 export class MainPage extends BasePage {
   readonly mainPageText: Locator;
-  
+
   constructor(page: Page) {
     super(page);
-    this.mainPageText = this.page.locator('PLACEHOLDER_mainPageText');
+    this.mainPageText = this.page.locator("PLACEHOLDER_mainPageText");
   }
-  
+
   async goto() {
-    await this.page.goto('/');
+    await this.page.goto("/");
   }
-  
+
   async isOnPage(): Promise<boolean> {
-    return this.page.url() === '/';
+    return this.page.url() === "/";
   }
-  
+
   async isMainPageDisplayed(): Promise<boolean> {
     // TODO: MCP로 구현
     return await this.mainPageText.isVisible();
@@ -420,24 +441,25 @@ export class MainPage extends BasePage {
 #### 3단계: 테스트 파일 Skeleton 생성
 
 **생성되는 테스트 코드:**
-```typescript
-import { test, expect } from '@playwright/test';
-import { LoginPage } from './pages/LoginPage';
-import { MainPage } from './pages/MainPage';
 
-test.describe('로그인 테스트', () => {
-  test('로그인 플로우', async ({ page }) => {
+```typescript
+import { test, expect } from "@playwright/test";
+import { LoginPage } from "./pages/LoginPage";
+import { MainPage } from "./pages/MainPage";
+
+test.describe("로그인 테스트", () => {
+  test("로그인 플로우", async ({ page }) => {
     const loginPage = new LoginPage(page);
     const mainPage = new MainPage(page);
-    
-    await test.step('로그인 페이지에서 로그인', async () => {
+
+    await test.step("로그인 페이지에서 로그인", async () => {
       await loginPage.goto();
-      await loginPage.fillPhoneNumber('01012345678');
-      await loginPage.fillPassword('password123');
+      await loginPage.fillPhoneNumber("01012345678");
+      await loginPage.fillPassword("password123");
       await loginPage.clickLoginButton();
     });
-    
-    await test.step('메인페이지로 이동 확인', async () => {
+
+    await test.step("메인페이지로 이동 확인", async () => {
       expect(await mainPage.isOnPage()).toBeTruthy();
       expect(await mainPage.isMainPageDisplayed()).toBeTruthy();
     });
@@ -446,9 +468,10 @@ test.describe('로그인 테스트', () => {
 ```
 
 **핵심 규칙:**
+
 1. **test.describe**: 테스트 시나리오 전체 (예: "로그인 테스트")
 2. **test.step**: 각 주요 단계 (예: "1. 로그인 페이지에서 로그인")
-3. **필수 POM 메서드**: 
+3. **필수 POM 메서드**:
    - `goto()`: 해당 페이지로 이동
    - `isOnPage()`: 현재 페이지 경로 확인
 4. **요소 선택자**: PLACEHOLDER로 시작, Phase 3에서 MCP로 실제 선택자 찾기
@@ -457,36 +480,38 @@ test.describe('로그인 테스트', () => {
 #### 4단계: MCP 실시간 검증 및 채워넣기
 
 **프로세스**:
+
 1. **MCP 브라우저 세션 시작**
 2. **테스트 실행 시뮬레이션**
    - 테스트 플로우를 순서대로 실행
    - 각 단계에서 필요한 선택자를 실시간으로 찾기
-   
 3. **선택자 찾기 및 검증**
+
    ```typescript
    // 예: "LoginPage로 이동" 단계
-   await mcpSession.navigate('/login');
-   
+   await mcpSession.navigate("/login");
+
    // 예: "이메일 입력" 단계
    const emailSelector = await findAndVerifySelector({
-     purpose: '이메일 입력',
-     type: 'input',
+     purpose: "이메일 입력",
+     type: "input",
      candidates: [
        'getByTestId("email")',
        'getByPlaceholder("이메일")',
-       'getByRole("textbox", { name: "이메일" })'
-     ]
+       'getByRole("textbox", { name: "이메일" })',
+     ],
    });
-   
+
    // 찾은 선택자로 실제 동작 수행
-   await mcpSession.fill(emailSelector, 'test@example.com');
-   
+   await mcpSession.fill(emailSelector, "test@example.com");
+
    // 성공하면 skeleton에 채워넣기
    loginPageSkeleton.elements[0].selector = emailSelector;
    ```
 
 4. **메서드 구현 생성**
    - 검증된 선택자를 사용하여 메서드 구현 생성
+
    ```typescript
    loginPageSkeleton.methods[0].implementation = `
      async login(email: string, password: string) {
@@ -503,12 +528,12 @@ test.describe('로그인 테스트', () => {
    ```typescript
    if (!emailSelector) {
      const userInput = await promptUser({
-       message: '이메일 입력 필드를 찾을 수 없습니다.',
+       message: "이메일 입력 필드를 찾을 수 없습니다.",
        options: [
-         '1. 다른 선택자 시도',
-         '2. 수동으로 선택자 입력',
-         '3. 이 단계 건너뛰기'
-       ]
+         "1. 다른 선택자 시도",
+         "2. 수동으로 선택자 입력",
+         "3. 이 단계 건너뛰기",
+       ],
      });
    }
    ```
@@ -516,17 +541,18 @@ test.describe('로그인 테스트', () => {
 #### 5단계: 최종 파일 생성 및 저장
 
 모든 선택자와 메서드가 채워진 후:
+
 ```typescript
 // 완성된 PageObject 생성
 class LoginPage extends BasePage {
-  emailInput = this.page.getByPlaceholder('이메일을 입력하세요');
-  passwordInput = this.page.getByPlaceholder('비밀번호');
-  loginButton = this.page.getByRole('button', { name: '로그인' });
-  
+  emailInput = this.page.getByPlaceholder("이메일을 입력하세요");
+  passwordInput = this.page.getByPlaceholder("비밀번호");
+  loginButton = this.page.getByRole("button", { name: "로그인" });
+
   async goto() {
-    await this.page.goto('/login');
+    await this.page.goto("/login");
   }
-  
+
   async login(email: string, password: string) {
     await this.emailInput.fill(email);
     await this.passwordInput.fill(password);
@@ -535,10 +561,11 @@ class LoginPage extends BasePage {
 }
 
 // 파일로 저장
-await fs.writeFile('tests/pages/LoginPage.ts', generatedCode);
+await fs.writeFile("tests/pages/LoginPage.ts", generatedCode);
 ```
 
 **핵심 장점**:
+
 - ✅ 파일 읽기/쓰기 최소화 (최종 완성본만 저장)
 - ✅ 실시간 검증으로 정확도 높음
 - ✅ 테스트 플로우 순서대로 진행하여 자연스러움
@@ -546,6 +573,7 @@ await fs.writeFile('tests/pages/LoginPage.ts', generatedCode);
 - ✅ 메모리에서 작업하므로 빠름
 
 **선택자 우선순위**:
+
 1. `data-testid` 속성 (최우선)
 2. `role`과 `name` 조합 (접근성 우선)
 3. `placeholder` 속성 (입력 필드)
@@ -555,12 +583,14 @@ await fs.writeFile('tests/pages/LoginPage.ts', generatedCode);
 7. CSS 선택자 (최후의 수단)
 
 **필수 메서드**:
+
 - `goto()`: 페이지로 이동
 - `isOnPage()`: 현재 경로 확인
 - 공통 동작 메서드: BasePage에서 상속 (fillInput, clickElement 등)
 - 페이지별 동작 메서드: 테스트 플로우 기반 생성 (login, submit 등)
 
 **장점**:
+
 - ✅ 깊은 컴포넌트 구조에서도 필요한 요소만 집중
 - ✅ LLM이 모든 요소를 탐색할 필요 없음
 - ✅ Phase 1에서 빠르게 구조 생성, Phase 2에서 정확도 향상
@@ -598,7 +628,7 @@ interface MCPToolResult {
 // Playwright MCP 도구 래퍼
 class PlaywrightMCPService {
   private mcpClient: MCPClient;
-  
+
   async navigate(url: string): Promise<void>;
   async screenshot(selector?: string): Promise<string>;
   async click(selector: string): Promise<void>;
@@ -606,10 +636,12 @@ class PlaywrightMCPService {
   async getText(selector: string): Promise<string>;
   async getAttribute(selector: string, attribute: string): Promise<string>;
   async evaluate(script: string): Promise<any>;
-  
+
   // 선택자 검증용
   async verifySelector(selector: string): Promise<boolean>;
-  async findElements(selectorCandidates: string[]): Promise<SelectorVerificationResult[]>;
+  async findElements(
+    selectorCandidates: string[]
+  ): Promise<SelectorVerificationResult[]>;
 }
 
 interface SelectorVerificationResult {
@@ -641,12 +673,19 @@ interface SelectorCandidate {
 
 class SelectorDeterminer {
   private mcpService: PlaywrightMCPService;
-  
-  async analyzePage(url: string, elementDescription: string): Promise<SelectorAnalysis>;
+
+  async analyzePage(
+    url: string,
+    elementDescription: string
+  ): Promise<SelectorAnalysis>;
   async verifySelector(selector: ElementSelector): Promise<boolean>;
-  async requestUserConfirmation(analysis: SelectorAnalysis): Promise<ElementSelector>;
-  async tryAlternatives(candidates: SelectorCandidate[]): Promise<ElementSelector>;
-  
+  async requestUserConfirmation(
+    analysis: SelectorAnalysis
+  ): Promise<ElementSelector>;
+  async tryAlternatives(
+    candidates: SelectorCandidate[]
+  ): Promise<ElementSelector>;
+
   // MCP를 통한 실제 검증
   private async verifySelectorWithMCP(selector: string): Promise<boolean>;
   private async captureScreenshot(selector?: string): Promise<string>;
@@ -667,11 +706,11 @@ interface AuthConfig {
 
 interface LoginFlow {
   steps: LoginStep[];
-  successIndicator: string;  // 로그인 성공 확인 방법
+  successIndicator: string; // 로그인 성공 확인 방법
 }
 
 interface LoginStep {
-  action: 'navigate' | 'fill' | 'click' | 'wait';
+  action: "navigate" | "fill" | "click" | "wait";
   selector?: string;
   value?: string;
   target?: string;
@@ -680,25 +719,31 @@ interface LoginStep {
 class AuthenticationService {
   private config: AuthConfig;
   private mcpService: PlaywrightMCPService;
-  
+
   // 로그인 필요 여부 감지
-  async detectAuthRequired(currentUrl: string, response?: any): Promise<boolean>;
-  
+  async detectAuthRequired(
+    currentUrl: string,
+    response?: any
+  ): Promise<boolean>;
+
   // 환경변수에서 인증 정보 로드
   async loadCredentials(): Promise<{ email: string; password: string }>;
-  
+
   // 도메인 문서에서 로그인 플로우 추출
   async extractLoginFlow(domainKnowledge: DomainKnowledge): Promise<LoginFlow>;
-  
+
   // 자동 로그인 수행
-  async performAutoLogin(loginFlow: LoginFlow, credentials: any): Promise<boolean>;
-  
+  async performAutoLogin(
+    loginFlow: LoginFlow,
+    credentials: any
+  ): Promise<boolean>;
+
   // 테스트에 로그인 단계 추가
   async addLoginToTest(testFile: TestFile): Promise<TestFile>;
-  
+
   // .env 파일 생성
   async createEnvTemplate(projectPath: string): Promise<void>;
-  
+
   // .gitignore 업데이트
   async updateGitignore(projectPath: string): Promise<void>;
 }
@@ -719,24 +764,29 @@ interface MockingAnalysis {
 class MockingManagementService {
   private testsDirectory: string;
   private mocksDirectory: string;
-  
+
   // 테스트 디렉토리에서 API 엔드포인트 검색
   async searchExistingMocks(endpoint: string): Promise<MockingAnalysis[]>;
-  
+
   // 공통 mocking 추출 제안
   async suggestCommonMocking(analyses: MockingAnalysis[]): Promise<string[]>;
-  
+
   // 공통 mocking 파일 생성
-  async createCommonMock(endpoint: string, mockingCode: string): Promise<string>;
-  
+  async createCommonMock(
+    endpoint: string,
+    mockingCode: string
+  ): Promise<string>;
+
   // 페이지 객체에서 공통 mocking import
   async updatePageObjectToUseCommonMock(
     pageObject: PageObject,
     commonMockPath: string
   ): Promise<void>;
-  
+
   // 기존 공통 mocking 확인
-  async findReusableMocks(dependencies: PageDependencies): Promise<Map<string, string>>;
+  async findReusableMocks(
+    dependencies: PageDependencies
+  ): Promise<Map<string, string>>;
 }
 ```
 
@@ -748,17 +798,17 @@ class MockingManagementService {
 interface MockingConfig {
   api: ApiMock[];
   storage: StorageMock;
-  scenarios: string[];  // 'success', 'error', 'loading' 등
+  scenarios: string[]; // 'success', 'error', 'loading' 등
 }
 
 interface ApiMock {
   endpoint: string;
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method: "GET" | "POST" | "PUT" | "DELETE";
   response: {
     status: number;
     body: any;
   };
-  condition?: string;  // 시나리오 조건
+  condition?: string; // 시나리오 조건
 }
 
 interface StorageMock {
@@ -774,32 +824,39 @@ interface ScreenshotConfig {
 }
 
 interface DeviceConfig {
-  name: 'pc' | 'mobile' | 'tablet';
+  name: "pc" | "mobile" | "tablet";
   viewport: { width: number; height: number };
 }
 
 class ScreenshotMockingService {
   private mcpService: PlaywrightMCPService;
   private llmService: LLMService;
-  
+
   // 페이지 의존성 분석
   async analyzePageDependencies(pageCode: string): Promise<PageDependencies>;
-  
+
   // Mocking 설정 확인
-  async checkExistingMocks(pageObject: PageObject): Promise<MockingConfig | null>;
-  
+  async checkExistingMocks(
+    pageObject: PageObject
+  ): Promise<MockingConfig | null>;
+
   // Mocking 설정 생성
-  async generateMockingConfig(dependencies: PageDependencies): Promise<MockingConfig>;
-  
+  async generateMockingConfig(
+    dependencies: PageDependencies
+  ): Promise<MockingConfig>;
+
   // POM에 Mocking 메서드 추가
-  async addMockingToPageObject(pageObject: PageObject, config: MockingConfig): Promise<void>;
-  
+  async addMockingToPageObject(
+    pageObject: PageObject,
+    config: MockingConfig
+  ): Promise<void>;
+
   // 스크린샷 생성
   async captureScreenshots(
     pageObject: PageObject,
     config: ScreenshotConfig
   ): Promise<ScreenshotResult[]>;
-  
+
   // Mocking 적용 및 페이지 로드
   private async loadPageWithMocks(
     url: string,
@@ -858,7 +915,10 @@ interface TestStep {
 }
 
 class TestScenarioComposer {
-  async composeTest(scenario: ScenarioAnalysis, pageObjects: PageObject[]): Promise<TestFile>;
+  async composeTest(
+    scenario: ScenarioAnalysis,
+    pageObjects: PageObject[]
+  ): Promise<TestFile>;
   async generateImports(pageObjects: PageObject[]): string[];
   async generateTestCases(scenario: ScenarioAnalysis): Promise<TestCase[]>;
   async addWaitConditions(testCase: TestCase): Promise<TestCase>;
@@ -874,6 +934,7 @@ class TestScenarioComposer {
 **모델 선택: Claude 3.5 Sonnet**
 
 Claude 3.5 Sonnet을 주 모델로 선택한 이유:
+
 1. **코드 생성 품질**: TypeScript/Playwright 코드 생성 우수
 2. **긴 컨텍스트**: 200K 토큰 - 도메인 문서, 기존 페이지 객체 모두 포함
 3. **Prompt Caching**: 반복되는 컨텍스트(시스템 프롬프트, 도메인 지식) 캐싱으로 비용 90% 절감
@@ -884,22 +945,25 @@ Claude 3.5 Sonnet을 주 모델로 선택한 이유:
 interface LLMService {
   chat(messages: Message[], options?: LLMOptions): Promise<LLMResponse>;
   generateCode(prompt: string, context?: any): Promise<string>;
-  analyzeScenario(scenario: string, domainKnowledge?: DomainKnowledge): Promise<ScenarioAnalysis>;
+  analyzeScenario(
+    scenario: string,
+    domainKnowledge?: DomainKnowledge
+  ): Promise<ScenarioAnalysis>;
   inferPagePath(pageName: string, context?: any): Promise<string>;
   selectBestSelector(candidates: SelectorCandidate[]): Promise<ElementSelector>;
 }
 
 interface Message {
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   content: string;
 }
 
 interface LLMOptions {
-  model?: string;              // 기본값: 'claude-3-5-sonnet-20241022'
+  model?: string; // 기본값: 'claude-3-5-sonnet-20241022'
   maxTokens?: number;
   temperature?: number;
-  cacheControl?: boolean;      // Prompt caching 활성화
-  traceId?: string;            // Langfuse trace ID
+  cacheControl?: boolean; // Prompt caching 활성화
+  traceId?: string; // Langfuse trace ID
 }
 
 interface LLMResponse {
@@ -917,14 +981,19 @@ class AnthropicLLMService implements LLMService {
   private client: Anthropic;
   private langfuse?: LangfuseClient;
   private promptCache: Map<string, CachedPrompt>;
-  
+
   async chat(messages: Message[], options?: LLMOptions): Promise<LLMResponse>;
   private buildSystemPrompt(): string;
-  private trackWithLangfuse(request: any, response: any, traceId: string): Promise<void>;
+  private trackWithLangfuse(
+    request: any,
+    response: any,
+    traceId: string
+  ): Promise<void>;
 }
 ```
 
 **향후 확장:**
+
 - 추상화 레이어를 통해 GPT-4, Gemini 등 다른 모델 지원 가능
 - 설정 파일에서 모델 선택 가능하도록 구현
 
@@ -957,7 +1026,7 @@ interface RequiredElement {
   page: string;
   element: string;
   purpose: string;
-  interactionType: 'click' | 'fill' | 'select' | 'check' | 'read';
+  interactionType: "click" | "fill" | "select" | "check" | "read";
 }
 ```
 
@@ -971,22 +1040,22 @@ interface E2EAgentConfig {
     tests: string;
     domainDoc?: string;
   };
-  
+
   // 테스트 설정
   test: {
     baseUrl: string;
     timeout?: number;
     retries?: number;
   };
-  
+
   // LLM 설정
   llm: {
-    provider: 'anthropic';
+    provider: "anthropic";
     apiKey: string;
     model?: string;
     caching?: boolean;
   };
-  
+
   // 모니터링 설정
   monitoring?: {
     langfuse?: {
@@ -995,7 +1064,7 @@ interface E2EAgentConfig {
       baseUrl?: string;
     };
   };
-  
+
   // 선택자 우선순위
   selectorPriority?: SelectorStrategy[];
 }
@@ -1007,12 +1076,12 @@ interface E2EAgentConfig {
 
 ```typescript
 enum ErrorType {
-  CONFIGURATION_ERROR = 'configuration_error',
-  LLM_ERROR = 'llm_error',
-  BROWSER_ERROR = 'browser_error',
-  FILE_SYSTEM_ERROR = 'file_system_error',
-  VALIDATION_ERROR = 'validation_error',
-  USER_CANCELLATION = 'user_cancellation'
+  CONFIGURATION_ERROR = "configuration_error",
+  LLM_ERROR = "llm_error",
+  BROWSER_ERROR = "browser_error",
+  FILE_SYSTEM_ERROR = "file_system_error",
+  VALIDATION_ERROR = "validation_error",
+  USER_CANCELLATION = "user_cancellation",
 }
 
 interface AgentError {
@@ -1117,15 +1186,15 @@ Anthropic의 Prompt Caching을 활용하여 비용 절감:
 ```typescript
 const cachedMessages = [
   {
-    role: 'system',
+    role: "system",
     content: SYSTEM_PROMPT,
-    cache_control: { type: 'ephemeral' }
+    cache_control: { type: "ephemeral" },
   },
   {
-    role: 'user',
+    role: "user",
     content: domainKnowledgeContext,
-    cache_control: { type: 'ephemeral' }
-  }
+    cache_control: { type: "ephemeral" },
+  },
 ];
 ```
 
@@ -1137,11 +1206,11 @@ Agent는 시작 시 Playwright MCP 서버를 자동으로 실행합니다:
 
 ```typescript
 const MCP_SERVER_CONFIG: MCPServerConfig = {
-  command: 'npx',
-  args: ['-y', '@modelcontextprotocol/server-playwright'],
+  command: "npx",
+  args: ["-y", "@modelcontextprotocol/server-playwright"],
   env: {
     // 필요한 환경 변수
-  }
+  },
 };
 ```
 
@@ -1185,7 +1254,7 @@ async function verifySelectorsWithMCP(
 ): Promise<SelectorAnalysis> {
   // 1. 페이지 이동
   await mcpService.navigate(url);
-  
+
   // 2. 각 선택자 후보 검증
   const results = await Promise.all(
     selectorCandidates.map(async (candidate) => {
@@ -1195,21 +1264,21 @@ async function verifySelectorsWithMCP(
         return {
           selector: candidate,
           found: true,
-          text
+          text,
         };
       } catch (error) {
         return {
           selector: candidate,
           found: false,
-          error: error.message
+          error: error.message,
         };
       }
     })
   );
-  
+
   // 3. 스크린샷 캡처 (사용자 확인용)
   const screenshot = await mcpService.screenshot();
-  
+
   // 4. 결과 분석 및 추천
   return analyzeResults(results, screenshot);
 }
@@ -1250,6 +1319,7 @@ e2e-agent interactive
 ### 의존성
 
 Agent 실행 시 자동으로 다음을 설치/실행:
+
 - `@modelcontextprotocol/server-playwright` (MCP 서버)
 - Playwright 브라우저 (Chromium)
 

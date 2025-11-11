@@ -339,174 +339,117 @@
 
 ---
 
-## Phase 3: MCP 실시간 검증 및 완성
+## Phase 3: CrewAI Agent + MCP 실시간 완성
 
-목표: 메모리의 skeleton을 MCP로 실시간 검증하면서 실제 선택자와 메서드로 채워넣기
+목표: CrewAI 기반 에이전트가 MCP 도구를 직접 호출하며 브라우저에서 선택자·메서드를 검증하고, 각 단계마다 개발자 피드백을 받아 최종 코드를 완성한다.
 
-### 9. MCP 클라이언트 구현
+### 9. CrewAI 에이전트 런타임 구축
 
-- [ ] 9.1 MCP 클라이언트 기본 구현
-  - @modelcontextprotocol/sdk 사용
-  - Playwright MCP 서버 연결
-  - 세션 관리 (시작, 종료)
-  - _Requirements: 3.1_
-  
+- [ ] 9.1 CrewAI/Anthropic 통합
+  - CrewAI Project/Agent/Task 구조 정의 (TypeScript 또는 Python 중 택 1)
+  - Anthropic Claude를 기본 모델로 설정하고 Prompt Caching 전략을 반영
+  - _Requirements: 1.3, 7.2_
+
   **테스트 방법:**
-  ```typescript
-  test('MCP 세션 시작', async () => {
-    const session = await mcpClient.startSession();
-    expect(session.isConnected).toBe(true);
-    const tools = await session.listTools();
-    expect(tools).toContain('playwright_navigate');
-  });
-  ```
-
-- [ ] 9.2 Playwright MCP 도구 래퍼
-  - navigate, click, fill, getText 등 기본 도구
-  - 선택자 검증 메서드
-  - 스크린샷 캡처
-  - _Requirements: 3.3_
-  
-  **테스트 방법:**
-  ```typescript
-  test('MCP 도구 사용', async () => {
-    await mcpSession.navigate('http://localhost:3000/login');
-    const exists = await mcpSession.verifySelector('getByPlaceholder("이메일")');
-    expect(exists).toBe(true);
-  });
-  ```
-  
-  **수동 테스트:**
   ```bash
-  # 테스트 서버 실행 (별도 터미널)
-  cd test-app && npm run dev
-  
-  # MCP 테스트
-  npm run test:mcp
+  crew run plan --scenario tests/scenarios/login-flow.md
+  # Agent와 Task가 정상적으로 생성되는지 확인
   ```
 
-### 10. 실시간 검증 및 채워넣기
+- [ ] 9.2 MCP Tool Binding
+  - `browser_navigate`, `browser_snapshot`, `browser_click`, `browser_type`, `browser_evaluate` 등을 CrewAI tool로 등록
+  - 에이전트가 도구 사용 시 필요한 파라미터/설명/보안 제한을 정의
+  - _Requirements: 3.1, 3.3_
 
-- [ ] 10.1 테스트 플로우 실행 엔진
-  - Skeleton의 테스트 플로우를 순서대로 실행
-  - 각 단계에서 필요한 선택자 실시간 탐색
-  - 성공 시 skeleton에 채워넣기
-  - _Requirements: 3.1, 3.2, 3.8_
-  
+  **테스트 방법:**
+  ```bash
+  crew run tool-check
+  # 각 tool 호출 후 MCP 서버에서 실제 액션이 일어나는지 확인
+  ```
+
+- [ ] 9.3 세션 라이프사이클 & 상태 공유
+  - MCP 세션을 Agent 컨텍스트에 저장하고 step 간 재사용
+  - 에이전트가 얻은 selector/로그/스크린샷을 context에 누적
+  - _Requirements: 3.8_
+
   **테스트 방법:**
   ```typescript
-  test('플로우 실행 및 채워넣기', async () => {
-    const result = await executor.executeAndFill(
-      testSkeleton,
-      pageObjectSkeletons,
-      mcpSession
-    );
-    
-    // 선택자가 채워졌는지 확인
-    const loginPage = result.pageObjects.find(p => p.name === 'LoginPage');
-    expect(loginPage.elements[0].selector).not.toBeNull();
-    expect(loginPage.elements[0].selector).toContain('getBy');
+  test('세션 상태 공유', async () => {
+    const { state } = await agent.runMethod('scanLoginPage');
+    expect(state.mcpSessionId).toBeDefined();
+    expect(state.collectedSelectors).toHaveLength(>0);
   });
   ```
 
-- [ ] 10.2 선택자 후보 생성 및 검증
-  - 요소의 purpose와 type 기반으로 후보 생성
-  - MCP로 각 후보 순서대로 검증
-  - 첫 번째 성공한 선택자 사용
-  - _Requirements: 3.2, 3.4, 3.5_
-  
+### 10. 메서드 단위 탐색 & 사용자 승인 루프
+
+- [ ] 10.1 메서드 단위 상태 머신
+  - “메서드 선택 → MCP 탐색 → 결과 요약 → 사용자 승인/수정 → 다음 메서드” 루프 구현
+  - 각 루프에서 CrewAI Agent가 스스로 다음 action을 선택하도록 프롬프트 설계
+  - _Requirements: 4.1, 4.2, 13.1_
+
   **테스트 방법:**
-  ```typescript
-  test('선택자 찾기', async () => {
-    const selector = await selectorFinder.findAndVerify(
-      mcpSession,
-      {
-        name: 'emailInput',
-        purpose: '이메일 입력',
-        type: 'input'
-      }
-    );
-    
-    expect(selector).toBeDefined();
-    expect(selector.strategy).toBeOneOf(['testId', 'placeholder', 'role']);
-  });
+  ```bash
+  crew run fill-method --method LoginPage.fillEmail
+  # MCP 호출 로그와 승인 프롬프트가 순서대로 뜨는지 확인
   ```
 
-- [ ] 10.3 메서드 구현 생성
-  - 검증된 선택자를 사용하여 메서드 구현 생성
-  - LLM으로 코드 생성
-  - Skeleton에 채워넣기
-  - _Requirements: 4.1, 4.2, 4.3_
-  
+- [ ] 10.2 실시간 브라우저 확인 및 공유
+  - Headed 모드 또는 스크린샷 스트림을 제공하여 개발자가 현재 상태를 확인 가능하게 함
+  - 선택자/행동 근거(스크린샷, DOM 스니펫, 로그)를 요약해 사용자에게 전달
+  - _Requirements: 9.8, 13.2_
+
   **테스트 방법:**
-  ```typescript
-  test('메서드 구현 생성', async () => {
-    const implementation = await methodGenerator.generate(
-      {
-        name: 'login',
-        parameters: [{ name: 'email' }, { name: 'password' }],
-        steps: ['emailInput에 입력', 'passwordInput에 입력', 'loginButton 클릭']
-      },
-      filledElements
-    );
-    
-    expect(implementation).toContain('await this.emailInput.fill(email)');
-    expect(implementation).toContain('await this.loginButton.click()');
-  });
+  ```bash
+  crew run preview --method LoginPage.clickLoginButton
+  # 스크린샷/DOM 스니펫이 출력/저장되는지 검증
   ```
 
-### 11. 실패 처리 및 사용자 검토
-
-- [ ] 11.1 실패 감지 및 로깅
-  - 선택자를 찾지 못한 경우
-  - 동작 실패한 경우
-  - 타임아웃 발생한 경우
-  - _Requirements: 7.7_
-  
-  **테스트 방법:**
-  ```typescript
-  test('실패 감지', async () => {
-    const result = await executor.executeStep(invalidStep, mcpSession);
-    expect(result.success).toBe(false);
-    expect(result.error).toBeDefined();
-    expect(result.failureType).toBe('SELECTOR_NOT_FOUND');
-  });
-  ```
-
-- [ ] 11.2 사용자 검토 프롬프트
-  - 실패 상황 설명
-  - 선택지 제공 (재시도, 수동 입력, 건너뛰기)
-  - 사용자 입력 처리
+- [ ] 10.3 승인/거절/수동입력 UX
+  - CLI/웹UI에서 "승인", "수정", "건너뛰기" 옵션을 제공하고 응답을 CrewAI state에 반영
+  - 거절 시 에이전트가 추가 MCP 호출 또는 사용자 입력 selector를 활용해 재시도
   - _Requirements: 13.1, 13.3_
-  
+
   **테스트 방법:**
   ```bash
-  # CLI에서 실패 시나리오 테스트
-  npm start -- --scenario scenarios/failing-test.md
-  
-  # 예상 출력:
-  # "❌ 이메일 입력 필드를 찾을 수 없습니다."
-  # "1. 다른 선택자 시도"
-  # "2. 수동으로 선택자 입력"
-  # "3. 이 단계 건너뛰기"
+  crew run review --method LoginPage.login
+  # 승인/거절 각각의 분기에서 state가 올바르게 업데이트되는지 확인
   ```
 
-- [ ] 11.3 재시도 및 복구 로직
-  - 사용자 선택에 따라 재시도
-  - 수동 입력 선택자 검증
-  - 건너뛴 단계 기록
-  - _Requirements: 7.7, 13.3_
-  
+### 11. 실패 처리 및 협업 UX
+
+- [ ] 11.1 실패 카테고리 및 알림
+  - SELECTOR_NOT_FOUND, ACTION_TIMEOUT, ASSERTION_FAILED 등 분류 정의
+  - 에이전트가 실패 시 즉시 사용자에게 요약/재시도 제안/스크린샷을 제공
+  - _Requirements: 7.7_
+
   **테스트 방법:**
   ```typescript
-  test('재시도 로직', async () => {
-    const userChoice = { action: 'retry', alternativeSelector: 'getByTestId("email")' };
-    const result = await failureHandler.retry(failedStep, userChoice, mcpSession);
-    expect(result.success).toBe(true);
+  test('실패 알림', async () => {
+    const res = await agent.runMethod('scanMissingField');
+    expect(res.failures[0].type).toBe('SELECTOR_NOT_FOUND');
   });
   ```
-    expect(result.screenshot).toBeDefined();
-  });
+
+- [ ] 11.2 수동 개입 기록
+  - 사용자가 입력한 selector/코드/메모를 CrewAI state 및 결과 파일에 기록
+  - 후속 실행 시 동일 정보 자동 재사용 옵션 제공
+  - _Requirements: 6.5, 13.4_
+
+  **테스트 방법:**
+  ```bash
+  crew run manual-note --method LoginPage.fillPassword
+  # 노트가 state/json 결과에 저장되는지 확인
+  ```
+
+- [ ] 11.3 세션 복구 및 이어서 실행
+  - 브라우저 세션 또는 Agent 세션이 끊겨도 마지막 승인 지점부터 이어서 진행
+  - _Requirements: 3.8, 7.7_
+
+  **테스트 방법:**
+  ```bash
+  crew run resume --checkpoint latest
+  # 이전까지 승인된 메서드는 스킵되고, 남은 메서드만 재시작되는지 검증
   ```
 
 ### 12. 최종 코드 생성 및 저장
